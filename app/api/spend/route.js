@@ -1,25 +1,28 @@
 // app/api/spend/route.js
-export const runtime = "nodejs"; // HMAC/crypto 사용 → Node 런타임
+export const runtime = "nodejs";
 
 import crypto from "crypto";
 
-// ──────────────────────────────────────────────────────────
-// KST 어제 날짜 계산 (YYYYMMDD / YYYY-MM-DD 둘 다 제공)
-// ──────────────────────────────────────────────────────────
+// KST 날짜 유틸
+function toKstDate(d = new Date()) {
+  const kstMs = d.getTime() + (9 * 60 + d.getTimezoneOffset()) * 60_000;
+  return new Date(kstMs);
+}
+function ymdDash(date) {
+  const yyyy = date.getUTCFullYear();
+  const mm = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(date.getUTCDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+function ymd(date) {
+  return ymdDash(date).replace(/-/g, "");
+}
 function kstYesterday() {
-  const now = new Date();
-  const kstMs = now.getTime() + (9 * 60 + now.getTimezoneOffset()) * 60_000;
-  const y = new Date(kstMs - 24 * 60 * 60 * 1000);
-  const yyyy = y.getUTCFullYear();
-  const mm = String(y.getUTCMonth() + 1).padStart(2, "0");
-  const dd = String(y.getUTCDate()).padStart(2, "0");
-  return { ymd: `${yyyy}${mm}${dd}`, ymdDash: `${yyyy}-${mm}-${dd}` };
+  const y = new Date(toKstDate().getTime() - 24 * 60 * 60 * 1000);
+  return { ymd: ymd(y), ymdDash: ymdDash(y) };
 }
 
-// ──────────────────────────────────────────────────────────
-// NAVER 서명: HMAC-SHA256(secret, `${ts}.${method}.${path}`) → base64
-// (Python 코드의 sign_headers와 동일)
-// ──────────────────────────────────────────────────────────
+// NAVER 인증 헤더
 function makeHeaders({ apiKey, secretKey, customerId, method, path }) {
   const ts = String(Date.now());
   const msg = `${ts}.${method}.${path}`;
@@ -33,10 +36,7 @@ function makeHeaders({ apiKey, secretKey, customerId, method, path }) {
   };
 }
 
-// ──────────────────────────────────────────────────────────
-// 하루치 bizmoney 소진액 조회 (refund/nonrefund 합산)
-// Python의 fetch_bizmoney_for와 1:1 대응
-// ──────────────────────────────────────────────────────────
+// 하루치 bizmoney 소진액 조회
 async function fetchBizmoneyFor({ dateYmd, apiKey, secretKey, customerId }) {
   const base = "https://api.naver.com";
   const path = "/billing/bizmoney/histories/exhaust";
@@ -57,7 +57,7 @@ async function fetchBizmoneyFor({ dateYmd, apiKey, secretKey, customerId }) {
     throw new Error(`Naver API ${res.status}: ${text}`);
   }
 
-  const arr = await res.json(); // [{ useRefundableAmt, useNonrefundableAmt, ... }, ...]
+  const arr = await res.json();
   let total = 0;
   for (const entry of arr || []) {
     const refundable = Math.abs(Number(entry?.useRefundableAmt || 0));
@@ -67,11 +67,7 @@ async function fetchBizmoneyFor({ dateYmd, apiKey, secretKey, customerId }) {
   return total;
 }
 
-// ──────────────────────────────────────────────────────────
 // ENV에서 계정 세트 읽기
-// 1) NAVER_ACCOUNTS_JSON (권장): [{"name":"...","API_KEY":"...","SECRET_KEY":"...","CUSTOMER_ID":"..."}, ...]
-// 2) 또는 단일 키: API_KEY / SECRET_KEY / CUSTOMER_ID
-// ──────────────────────────────────────────────────────────
 function readAccountsFromEnv() {
   const json = process.env.NAVER_ACCOUNTS_JSON;
   if (json) {
@@ -80,7 +76,6 @@ function readAccountsFromEnv() {
       if (Array.isArray(parsed) && parsed.length) return parsed;
     } catch {}
   }
-  // 단일 계정 fallback
   const API_KEY = process.env.API_KEY || process.env.NAVER_API_KEY;
   const SECRET_KEY = process.env.SECRET_KEY || process.env.NAVER_SECRET_KEY;
   const CUSTOMER_ID = process.env.CUSTOMER_ID || process.env.NAVER_CUSTOMER_ID;
@@ -90,77 +85,59 @@ function readAccountsFromEnv() {
   throw new Error("환경변수에 계정 정보가 없습니다. NAVER_ACCOUNTS_JSON 또는 (API_KEY/SECRET_KEY/CUSTOMER_ID) 설정 필요");
 }
 
-// ──────────────────────────────────────────────────────────
-// GET /api/spend
-// - 기본: 어제 하루 합계 { date, total, perAccount[] }
-// - days=8 쿼리 주면 최근 N일 일자별 합계도 반환(series)
-// ──────────────────────────────────────────────────────────
+// GET /api/spend?start=YYYY-MM-DD&end=YYYY-MM-DD
+// 미지정 시 어제 하루 반환
 export async function GET(request) {
   try {
-    const { ymd, ymdDash } = kstYesterday();
     const accounts = readAccountsFromEnv();
-
-    // ?days=8 지원 (없으면 1일만)
     const { searchParams } = new URL(request.url);
-    const days = Math.max(1, Math.min(30, Number(searchParams.get("days") || 1)));
 
-    const out = { date: ymdDash, total: 0, perAccount: [] };
+    // 파라미터 파싱
+    const startParam = searchParams.get("start");
+    const endParam = searchParams.get("end");
 
-    // 최근 N일 시리즈가 필요하면 생성
-    if (days > 1) {
-      const seriesDates = [];
-      for (let i = days - 1; i >= 0; i--) {
-        const d = new Date();
-        const kstMs = d.getTime() + (9 * 60 + d.getTimezoneOffset()) * 60_000;
-        const target = new Date(kstMs - (i + 1) * 24 * 60 * 60 * 1000);
-        const yyyy = target.getUTCFullYear();
-        const mm = String(target.getUTCMonth() + 1).padStart(2, "0");
-        const dd = String(target.getUTCDate()).padStart(2, "0");
-        seriesDates.push({ ymd: `${yyyy}${mm}${dd}`, ymdDash: `${yyyy}-${mm}-${dd}` });
-      }
+    let startDash, endDash;
+    if (startParam && endParam) {
+      startDash = startParam;
+      endDash = endParam;
+    } else {
+      // 기본: 어제 하루
+      const { ymdDash: yd } = kstYesterday();
+      startDash = yd;
+      endDash = yd;
+    }
 
-      const series = [];
-      for (const sd of seriesDates) {
-        let dayTotal = 0;
-        for (const acc of accounts) {
-          dayTotal += await fetchBizmoneyFor({
-            dateYmd: sd.ymd,
-            apiKey: acc.API_KEY,
-            secretKey: acc.SECRET_KEY,
-            customerId: acc.CUSTOMER_ID,
-          });
-        }
-        series.push({ date: sd.ymdDash, total: Math.round(dayTotal) });
-      }
-      // 어제 값은 맨 마지막
-      out.series = series;
-      out.total = series[series.length - 1]?.total ?? 0;
+    // 날짜 범위 확정 (KST 기준, 양 끝 포함)
+    const s = new Date(`${startDash}T00:00:00Z`);
+    const e = new Date(`${endDash}T00:00:00Z`);
+    if (isNaN(s) || isNaN(e) || s.getTime() > e.getTime()) {
+      return new Response(JSON.stringify({ error: "invalid date range" }), { status: 400 });
+    }
 
-      // 계정별 어제값
+    // 범위를 하루씩 순회
+    let total = 0;
+    const perDay = [];
+    for (let d = new Date(s); d.getTime() <= e.getTime(); d.setUTCDate(d.getUTCDate() + 1)) {
+      const dayYmd = ymd(d);
+      let daySum = 0;
       for (const acc of accounts) {
-        const val = await fetchBizmoneyFor({
-          dateYmd: ymd,
+        daySum += await fetchBizmoneyFor({
+          dateYmd: dayYmd,
           apiKey: acc.API_KEY,
           secretKey: acc.SECRET_KEY,
           customerId: acc.CUSTOMER_ID,
         });
-        out.perAccount.push({ name: acc.name || acc.CUSTOMER_ID, amount: Math.round(val) });
       }
-      return Response.json(out);
+      total += daySum;
+      perDay.push({ date: ymdDash(d), total: Math.round(daySum) });
     }
 
-    // 기본(어제 하루) 처리
-    for (const acc of accounts) {
-      const val = await fetchBizmoneyFor({
-        dateYmd: ymd,
-        apiKey: acc.API_KEY,
-        secretKey: acc.SECRET_KEY,
-        customerId: acc.CUSTOMER_ID,
-      });
-      out.perAccount.push({ name: acc.name || acc.CUSTOMER_ID, amount: Math.round(val) });
-    }
-    out.total = out.perAccount.reduce((s, a) => s + a.amount, 0);
-    return Response.json(out);
+    return Response.json({
+      start: startDash,
+      end: endDash,
+      total: Math.round(total),
+      perDay, // 필요 없으면 프론트에서 안 쓰면 됨
+    });
   } catch (e) {
     return new Response(JSON.stringify({ error: String(e.message || e) }), { status: 500 });
   }
