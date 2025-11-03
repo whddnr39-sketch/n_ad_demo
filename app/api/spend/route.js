@@ -28,6 +28,7 @@ function makeHeaders({ apiKey, secretKey, customerId }) {
 }
 
 
+
 async function fetchSpendForCustomer(customerId, start, end) {
   const base = "https://api.naver.com";
   const url = `${base}/stats?level=CAMPAIGN&timeRange=DAY&start=${start}&end=${end}`;
