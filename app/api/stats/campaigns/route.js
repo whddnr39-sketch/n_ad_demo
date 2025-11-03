@@ -1,4 +1,3 @@
-// app/api/stats/campaigns/route.js
 export const runtime = "nodejs";
 import crypto from "crypto";
 
@@ -12,6 +11,9 @@ function sign({ secretKey, method, path }) {
 }
 
 function headers({ apiKey, secretKey, customerId, method, path }) {
+  if (!apiKey || !secretKey || !customerId) {
+    throw new Error("apiKey/secretKey/customerId가 비어 있습니다 (env 확인).");
+  }
   const { ts, sig } = sign({ secretKey, method, path });
   return {
     "X-Timestamp": ts,
@@ -29,18 +31,18 @@ function readEnv() {
   if (!API_KEY || !SECRET_KEY || !CUSTOMER_ID) {
     throw new Error("환경변수(API_KEY/SECRET_KEY/CUSTOMER_ID)가 필요합니다.");
   }
-  return { API_KEY, SECRET_KEY, CUSTOMER_ID };
+  // ✅ 소문자 키로 매핑해서 반환
+  return { apiKey: API_KEY, secretKey: SECRET_KEY, customerId: CUSTOMER_ID };
 }
 
 function parseRange(url) {
   const u = new URL(url);
   const start = u.searchParams.get("start");
   const end = u.searchParams.get("end");
-  if (!start || !end) throw new Error("start/end 파라미터가 필요합니다. 예) ?start=2025-11-01&end=2025-11-02");
+  if (!start || !end) throw new Error("start/end 파라미터 필요. 예) ?start=2025-11-01&end=2025-11-02");
   return { start, end };
 }
 
-// 1) 캠페인 목록
 async function listCampaigns(env) {
   const path = "/ncc/campaigns";
   const res = await fetch(BASE + path, {
@@ -53,12 +55,12 @@ async function listCampaigns(env) {
   return (arr || []).map(c => ({ id: c.nccCampaignId, name: c.name }));
 }
 
-// 2) 캠페인 단건 통계(/stats?id=...)
+// 단일 캠페인 id로 /stats 조회
 async function fetchStatPerCampaign(env, id, start, end) {
   const path = "/stats";
   const params = new URLSearchParams();
-  params.set("id", id); // ← 단일 id로 호출 (ids 사용 안 함)
-  params.set("fields", JSON.stringify(["impCnt", "clkCnt", "salesAmt", "ctr", "cpc", "avgRnk"]));
+  params.set("id", id); // ← 단일 id
+  params.set("fields", JSON.stringify(["impCnt","clkCnt","salesAmt","ctr","cpc","avgRnk"]));
   params.set("timeRange", JSON.stringify({ since: start, until: end }));
   const url = `${BASE}${path}?${params.toString()}`;
 
@@ -68,14 +70,14 @@ async function fetchStatPerCampaign(env, id, start, end) {
     cache: "no-store",
   });
   if (!res.ok) throw new Error(`stats ${id} ${res.status}: ${await res.text()}`);
-  // 응답이 배열/객체 계정별로 다를 수 있어 방어적으로 처리
+
   const data = await res.json();
-  const items = Array.isArray(data) ? data : (data?.data || data?.items || []);
-  // 합산
-  let agg = { impCnt: 0, clkCnt: 0, salesAmt: 0, ctrSum: 0, cpcSum: 0, rnkSum: 0, n: 0 };
-  for (const it of items) {
-    const v = it.items ? it.items : [it];
-    for (const x of v) {
+  const arr = Array.isArray(data) ? data : (data?.data || data?.items || []);
+  let agg = { impCnt:0, clkCnt:0, salesAmt:0, ctrSum:0, cpcSum:0, rnkSum:0, n:0 };
+
+  for (const it of arr) {
+    const list = Array.isArray(it?.items) ? it.items : [it];
+    for (const x of list) {
       agg.impCnt += Number(x.impCnt ?? 0);
       agg.clkCnt += Number(x.clkCnt ?? 0);
       agg.salesAmt += Number(x.salesAmt ?? 0);
@@ -85,6 +87,7 @@ async function fetchStatPerCampaign(env, id, start, end) {
       agg.n += 1;
     }
   }
+
   return {
     impCnt: Math.round(agg.impCnt),
     clkCnt: Math.round(agg.clkCnt),
@@ -97,13 +100,13 @@ async function fetchStatPerCampaign(env, id, start, end) {
 
 export async function GET(req) {
   try {
-    const env = readEnv();
+    const env = readEnv();                         // ← 소문자 키로 받음
     const { start, end } = parseRange(req.url);
 
     const list = await listCampaigns(env);
     if (list.length === 0) return Response.json({ start, end, total: 0, rows: [] });
 
-    // 동시 호출 (너무 많으면 병렬 폭 제한)
+    // 병렬 호출 제한
     const CONCURRENCY = 10;
     const rows = [];
     let total = 0;
