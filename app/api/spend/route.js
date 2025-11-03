@@ -16,7 +16,8 @@ function kstYesterdayRange() {
 
 function makeHeaders({ apiKey, secretKey, customerId }) {
   const ts = String(Date.now());
-  const sig = crypto.createHmac("sha256", secretKey).update(ts).digest("hex");
+  // ✅ 올바른 순서: HMAC(secretKey, ts)
+  const sig = crypto.createHmac("sha256", secretKey).update(ts).digest("base64");
   return {
     "X-Timestamp": ts,
     "X-API-KEY": apiKey,
@@ -25,6 +26,7 @@ function makeHeaders({ apiKey, secretKey, customerId }) {
     "Content-Type": "application/json",
   };
 }
+
 
 async function fetchSpendForCustomer(customerId, start, end) {
   const base = "https://api.searchad.naver.com";
