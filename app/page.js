@@ -1,63 +1,69 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
-function formatKRW(num) {
-  return num.toLocaleString("ko-KR") + "원";
-}
-
-function kstYesterdayLabel() {
-  const now = new Date();
-  const kstMs = now.getTime() + (9 * 60 + now.getTimezoneOffset()) * 60_000;
-  const y = new Date(kstMs - 24 * 60 * 60 * 1000);
-  const yyyy = y.getUTCFullYear();
-  const mm = String(y.getUTCMonth() + 1).padStart(2, "0");
-  const dd = String(y.getUTCDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
-}
+// 금액 포맷 (₩1,234,567)
+const fmtKRW = (n) =>
+  `₩${Math.round(Number(n) || 0).toLocaleString("ko-KR")}`;
 
 export default function Page() {
-  const [apiData, setApiData] = useState(null);
-  const [override, setOverride] = useState("");
-  const yday = useMemo(() => kstYesterdayLabel(), []);
+  const [date, setDate] = useState("");     // 예: 2025-11-02 (API에서 제공)
+  const [total, setTotal] = useState(0);    // 어제 합계 (API에서 제공)
+  const [err, setErr] = useState("");
 
   useEffect(() => {
     fetch("/api/spend")
       .then((r) => r.json())
-      .then(setApiData)
-      .catch(() => setApiData(null));
+      .then((d) => {
+        setDate(d?.date || "");
+        setTotal(d?.total || 0);
+      })
+      .catch((e) => setErr(String(e?.message || e)));
   }, []);
 
-  const spend = useMemo(() => {
-    if (apiData?.total != null) return Number(apiData.total);
-    const v = override?.trim() ? Number(override.replace(/,/g, "")) : 0;
-    return Number.isFinite(v) ? v : 0;
-  }, [apiData, override]);
+  // 아주 간결한 스타일
+  const page = {
+    minHeight: "100vh",
+    background: "#0b0f1a",
+    color: "#e5e7eb",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+  };
+  const card = {
+    width: "min(560px, 92vw)",
+    background: "#0f172a",
+    border: "1px solid #1f2940",
+    borderRadius: 20,
+    padding: 24,
+    boxShadow: "0 10px 30px rgba(0,0,0,0.35)",
+  };
+  const label = { fontSize: 12, color: "#93a3b8" };
 
   return (
-    <main className="flex flex-col items-center justify-center min-h-screen p-8">
-      <h1 className="text-2xl font-bold mb-4">어제자 네이버 광고비</h1>
-      <p className="text-gray-600 mb-2">기준일: {yday}</p>
-      <p className="text-3xl font-semibold text-green-600">
-        {formatKRW(spend)}
-      </p>
+    <div style={page}>
+      <div style={card}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
+          <h1 style={{ fontSize: 18, fontWeight: 700 }}>어제자 광고비</h1>
+          <span style={label}>KST 기준</span>
+        </div>
 
-      <input
-        type="text"
-        placeholder="직접 입력 (예: 1234567)"
-        value={override}
-        onChange={(e) => setOverride(e.target.value)}
-        className="border rounded p-2 mt-4 text-center"
-      />
+        <div style={{ background: "#111827", border: "1px solid #1f2937", borderRadius: 16, padding: 20, marginBottom: 16 }}>
+          <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 6 }}>일자</div>
+          <div style={{ fontSize: 20, fontWeight: 700 }}>{date || "-"}</div>
+        </div>
 
-      {apiData?.perAccount?.length ? (
-        <ul className="mt-6 text-sm text-gray-500">
-          {apiData.perAccount.map((a) => (
-            <li key={a.name}>
-              {a.name}: <b>{formatKRW(a.amount)}</b>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-    </main>
+        <div style={{ background: "#111827", border: "1px solid #1f2937", borderRadius: 16, padding: 20 }}>
+          <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 6 }}>광고비 (합계)</div>
+          <div style={{ fontSize: 40, fontWeight: 800, lineHeight: 1.1 }}>{fmtKRW(total)}</div>
+        </div>
+
+        {err ? (
+          <div style={{ marginTop: 12, fontSize: 12, color: "#fca5a5" }}>
+            * 데이터 로드 실패: {err}
+          </div>
+        ) : null}
+      </div>
+    </div>
   );
 }
