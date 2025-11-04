@@ -37,7 +37,35 @@ function range(url) {
   return { start, end, adgroupId, campaignId };
 }
 
-// 재활용: 그룹/캠페인 → 소재 로딩
+// ✅ 추가 필드 포함된 소재 조회
+async function listAdsOfGroup(creds, adgroupId) {
+  const path = "/ncc/ads";
+  const qs = `?nccAdgroupId=${encodeURIComponent(adgroupId)}`;
+  const res = await fetch(`${BASE}${path}${qs}`, {
+    method: "GET",
+    headers: headers(creds.apiKey, creds.secretKey, creds.customerId, "GET", path),
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`ads ${adgroupId} ${res.status}: ${await res.text()}`);
+  const arr = await res.json();
+
+  // 🔹 SHOPPING_PRODUCT_AD만 필터링
+  return (arr || [])
+    .filter(a => a.type === "SHOPPING_PRODUCT_AD")
+    .map(a => {
+      const ref = a.referenceData || {};
+      const attr = a.adAttr || {};
+      return {
+        id: a.nccAdId,
+        name: ref.productName || ref.productTitle || a.name || a.nccAdId,
+        bidAmt: attr.bidAmt ?? null,
+        mallProductId: ref.mallProductId ?? null,
+        imageUrl: ref.imageUrl ?? null,
+        productName: ref.productName ?? null,
+      };
+    });
+}
+
 async function listAdgroups(creds, campaignId) {
   const path = "/ncc/adgroups";
   const qs = campaignId ? `?nccCampaignId=${encodeURIComponent(campaignId)}` : "";
@@ -50,21 +78,7 @@ async function listAdgroups(creds, campaignId) {
   const arr = await res.json();
   return (arr || []).map(g => ({ id: g.nccAdgroupId, name: g.name }));
 }
-async function listAdsOfGroup(creds, adgroupId) {
-  const path = "/ncc/ads";
-  const qs = `?nccAdgroupId=${encodeURIComponent(adgroupId)}`;
-  const res = await fetch(`${BASE}${path}${qs}`, {
-    method: "GET",
-    headers: headers(creds.apiKey, creds.secretKey, creds.customerId, "GET", path),
-    cache: "no-store",
-  });
-  if (!res.ok) throw new Error(`ads ${adgroupId} ${res.status}: ${await res.text()}`);
-  const arr = await res.json();
-  return (arr || []).map(a => ({
-    id: a.nccAdId,
-    name: a.ad?.name || a.ad?.nickname || a.name || a.nccAdId,
-  }));
-}
+
 async function listAds(creds, { adgroupId, campaignId }) {
   if (adgroupId) {
     return await listAdsOfGroup(creds, adgroupId);
@@ -80,11 +94,11 @@ async function listAds(creds, { adgroupId, campaignId }) {
   return all;
 }
 
-// 단일 소재 id로 /stats 호출
+// 단일 소재 id로 /stats 호출 (기존 그대로)
 async function fetchStatPerAd(creds, adId, start, end) {
   const path = "/stats";
   const params = new URLSearchParams();
-  params.set("id", adId); // 단건
+  params.set("id", adId);
   params.set("fields", JSON.stringify(["impCnt","clkCnt","salesAmt","ctr","cpc","avgRnk"]));
   params.set("timeRange", JSON.stringify({ since: start, until: end }));
 
@@ -120,7 +134,7 @@ async function fetchStatPerAd(creds, adId, start, end) {
   };
 }
 
-// GET /api/stats/ads?start=YYYY-MM-DD&end=YYYY-MM-DD[&adgroupId=grp-...][&campaignId=cmp-...]
+// ✅ 메인 핸들러
 export async function GET(req) {
   try {
     const creds = env();
@@ -135,7 +149,17 @@ export async function GET(req) {
     for (let i = 0; i < ads.length; i += CONC) {
       const part = ads.slice(i, i + CONC);
       const stats = await Promise.all(
-        part.map(async a => ({ id: a.id, name: a.name, ...(await fetchStatPerAd(creds, a.id, start, end)) }))
+        part.map(async a => ({
+          id: a.id,
+          name: a.name,
+          ...(await fetchStatPerAd(creds, a.id, start, end)),
+          // 🔹 신규 필드들 그대로 전달
+          nccAdId: a.id,
+          bidAmt: a.bidAmt,
+          mallProductId: a.mallProductId,
+          imageUrl: a.imageUrl,
+          productName: a.productName,
+        }))
       );
       for (const r of stats) {
         rows.push(r);
