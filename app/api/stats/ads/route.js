@@ -1,4 +1,3 @@
-// app/api/stats/ads/route.js
 export const runtime = "nodejs";
 import crypto from "crypto";
 
@@ -6,10 +5,12 @@ const BASE = "https://api.searchad.naver.com";
 
 function sign(secretKey, method, path) {
   const ts = String(Date.now());
-  const sig = crypto.createHmac("sha256", secretKey).update(`${ts}.${method}.${path}`).digest("base64");
+  const sig = crypto.createHmac("sha256", secretKey)
+    .update(`${ts}.${method}.${path}`)
+    .digest("base64");
   return { ts, sig };
 }
-function headers({ apiKey, secretKey, customerId, method, path }) {
+function headers(apiKey, secretKey, customerId, method, path) {
   const { ts, sig } = sign(secretKey, method, path);
   return {
     "X-Timestamp": ts,
@@ -19,124 +20,134 @@ function headers({ apiKey, secretKey, customerId, method, path }) {
     "Content-Type": "application/json",
   };
 }
-function readEnv() {
-  const apiKey = process.env.API_KEY;
-  const secretKey = process.env.SECRET_KEY;
-  const customerId = process.env.CUSTOMER_ID;
-  if (!apiKey || !secretKey || !customerId) throw new Error("apiKey/secretKey/customerId가 비어 있습니다 (env 확인).");
+function env() {
+  const apiKey = process.env.API_KEY || process.env.NAVER_API_KEY;
+  const secretKey = process.env.SECRET_KEY || process.env.NAVER_SECRET_KEY;
+  const customerId = process.env.CUSTOMER_ID || process.env.NAVER_CUSTOMER_ID;
+  if (!apiKey || !secretKey || !customerId) throw new Error("env(API_KEY/SECRET_KEY/CUSTOMER_ID) 필요");
   return { apiKey, secretKey, customerId };
 }
+function range(url) {
+  const u = new URL(url);
+  const start = u.searchParams.get("start");
+  const end = u.searchParams.get("end");
+  const adgroupId = u.searchParams.get("adgroupId");
+  const campaignId = u.searchParams.get("campaignId");
+  if (!start || !end) throw new Error("start/end 필요");
+  return { start, end, adgroupId, campaignId };
+}
 
-/** ---- 목록 조회 ---- **/
-async function listAdgroups(env, campaignId = null) {
+// 재활용: 그룹/캠페인 → 소재 로딩
+async function listAdgroups(creds, campaignId) {
   const path = "/ncc/adgroups";
   const qs = campaignId ? `?nccCampaignId=${encodeURIComponent(campaignId)}` : "";
   const res = await fetch(`${BASE}${path}${qs}`, {
     method: "GET",
-    headers: headers({ ...env, method: "GET", path }),
+    headers: headers(creds.apiKey, creds.secretKey, creds.customerId, "GET", path),
     cache: "no-store",
   });
   if (!res.ok) throw new Error(`adgroups ${res.status}: ${await res.text()}`);
   const arr = await res.json();
-  return (arr || []).map(g => ({ id: g.nccAdgroupId, name: g.name, campaignId: g.nccCampaignId }));
+  return (arr || []).map(g => ({ id: g.nccAdgroupId, name: g.name }));
 }
-
-async function listAdsOfGroup(env, adgroupId) {
+async function listAdsOfGroup(creds, adgroupId) {
   const path = "/ncc/ads";
   const qs = `?nccAdgroupId=${encodeURIComponent(adgroupId)}`;
   const res = await fetch(`${BASE}${path}${qs}`, {
     method: "GET",
-    headers: headers({ ...env, method: "GET", path }),
+    headers: headers(creds.apiKey, creds.secretKey, creds.customerId, "GET", path),
     cache: "no-store",
   });
-  if (!res.ok) throw new Error(`ads ${res.status}: ${await res.text()}`);
+  if (!res.ok) throw new Error(`ads ${adgroupId} ${res.status}: ${await res.text()}`);
   const arr = await res.json();
-
-  // 유형별로 안전하게 이름만 뽑기 (이미지/URL은 보류)
-  return (arr || []).map(a => {
-    const id = a.nccAdId;
-    const name = a.ad?.name ?? a.ad?.headline ?? a.nccAdId;
-    return { id, name, adgroupId };
-  });
+  return (arr || []).map(a => ({
+    id: a.nccAdId,
+    name: a.ad?.name || a.ad?.nickname || a.name || a.nccAdId,
+  }));
 }
-
-async function listAds(env, { adgroupId, campaignId }) {
-  if (adgroupId) return await listAdsOfGroup(env, adgroupId);
-
-  const groups = await listAdgroups(env, campaignId || null);
+async function listAds(creds, { adgroupId, campaignId }) {
+  if (adgroupId) {
+    return await listAdsOfGroup(creds, adgroupId);
+  }
+  const groups = await listAdgroups(creds, campaignId || null);
   const CONC = 10;
   let all = [];
   for (let i = 0; i < groups.length; i += CONC) {
     const part = groups.slice(i, i + CONC);
-    const chunk = await Promise.all(part.map(g => listAdsOfGroup(env, g.id)));
-    for (const c of chunk) all.push(...c);
+    const chunks = await Promise.all(part.map(g => listAdsOfGroup(creds, g.id)));
+    for (const c of chunks) all.push(...c);
   }
   return all;
 }
 
-/** ---- 통계 조회 ---- **/
-async function fetchStatPerAd(env, adId, start, end) {
+// 단일 소재 id로 /stats 호출
+async function fetchStatPerAd(creds, adId, start, end) {
   const path = "/stats";
   const params = new URLSearchParams();
-  params.set("id", adId);
+  params.set("id", adId); // 단건
   params.set("fields", JSON.stringify(["impCnt","clkCnt","salesAmt","ctr","cpc","avgRnk"]));
-  params.set("timeRange", JSON.stringify({ since:start, until:end }));
+  params.set("timeRange", JSON.stringify({ since: start, until: end }));
+
   const res = await fetch(`${BASE}${path}?${params.toString()}`, {
-    method:"GET",
-    headers: headers({ ...env, method:"GET", path }),
-    cache:"no-store",
+    method: "GET",
+    headers: headers(creds.apiKey, creds.secretKey, creds.customerId, "GET", path),
+    cache: "no-store",
   });
-  if (!res.ok) throw new Error(`stats ${res.status}: ${await res.text()}`);
-  return await res.json();
+  if (!res.ok) throw new Error(`stats ${adId} ${res.status}: ${await res.text()}`);
+
+  const data = await res.json();
+  const arr = Array.isArray(data) ? data : (data?.data || data?.items || []);
+  let agg = { imp:0, clk:0, amt:0, ctr:0, cpc:0, rnk:0, n:0 };
+  for (const it of arr) {
+    const list = Array.isArray(it?.items) ? it.items : [it];
+    for (const x of list) {
+      agg.imp += Number(x.impCnt ?? 0);
+      agg.clk += Number(x.clkCnt ?? 0);
+      agg.amt += Number(x.salesAmt ?? 0);
+      agg.ctr += Number(x.ctr ?? 0);
+      agg.cpc += Number(x.cpc ?? 0);
+      agg.rnk += Number(x.avgRnk ?? 0);
+      agg.n += 1;
+    }
+  }
+  return {
+    impCnt: Math.round(agg.imp),
+    clkCnt: Math.round(agg.clk),
+    salesAmt: Math.round(agg.amt),
+    ctr: agg.n ? agg.ctr / agg.n : 0,
+    cpc: agg.n ? agg.cpc / agg.n : 0,
+    avgRnk: agg.n ? agg.rnk / agg.n : 0,
+  };
 }
 
-/** ---- 메인 핸들러 ---- **/
+// GET /api/stats/ads?start=YYYY-MM-DD&end=YYYY-MM-DD[&adgroupId=grp-...][&campaignId=cmp-...]
 export async function GET(req) {
   try {
-    const env = readEnv();
-    const u = new URL(req.url);
-    const start = u.searchParams.get("start");
-    const end = u.searchParams.get("end");
-    const adgroupId = u.searchParams.get("adgroupId");
-    const campaignId = u.searchParams.get("campaignId");
+    const creds = env();
+    const { start, end, adgroupId, campaignId } = range(req.url);
 
-    // 1) 광고(소재) 목록을 먼저 모으고 (id, name)
-    const ads = await listAds(env, { adgroupId, campaignId });
+    const ads = await listAds(creds, { adgroupId, campaignId });
+    if (!ads.length) return Response.json({ start, end, total: 0, rows: [] });
 
-    // 2) 각 소재별 통계를 붙인다
-    const CONC = 12;
-    let rows = [];
+    const CONC = 10;
+    const rows = [];
     let total = 0;
-
     for (let i = 0; i < ads.length; i += CONC) {
       const part = ads.slice(i, i + CONC);
-      const stats = await Promise.all(part.map(async a => {
-        const s = await fetchStatPerAd(env, a.id, start, end);
-        const r = {
-          id: a.id,
-          name: a.name,         // ✅ 이름 포함
-          impCnt: s.impCnt ?? 0,
-          clkCnt: s.clkCnt ?? 0,
-          salesAmt: s.salesAmt ?? 0,
-          ctr: s.ctr ?? 0,
-          cpc: s.cpc ?? 0,
-          avgRnk: s.avgRnk ?? 0,
-        };
-        return r;
-      }));
+      const stats = await Promise.all(
+        part.map(async a => ({ id: a.id, name: a.name, ...(await fetchStatPerAd(creds, a.id, start, end)) }))
+      );
       for (const r of stats) {
         rows.push(r);
         total += r.salesAmt;
       }
     }
-
     rows.sort((a, b) => b.salesAmt - a.salesAmt);
     return Response.json({
       start, end,
       adgroupId: adgroupId || null,
       campaignId: campaignId || null,
-      total: Math.round(total),
-      rows
+      total: Math.round(total), rows
     });
   } catch (e) {
     return new Response(JSON.stringify({ error: String(e.message || e) }), { status: 500 });
