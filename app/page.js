@@ -245,18 +245,52 @@ export default function Page() {
             <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
               <thead>
                 <tr style={{ textAlign:"left", background:"#0b1020" }}>
-                  <th style={{ padding:"10px 8px", borderBottom:"1px solid #1f2937" }}>이름</th>
-                  <th style={{ padding:"10px 8px", borderBottom:"1px solid #1f2937" }}>노출</th>
-                  <th style={{ padding:"10px 8px", borderBottom:"1px solid #1f2937" }}>클릭</th>
-                  <th style={{ padding:"10px 8px", borderBottom:"1px solid #1f2937" }}>CTR</th>
-                  <th style={{ padding:"10px 8px", borderBottom:"1px solid #1f2937" }}>CPC</th>
-                  <th style={{ padding:"10px 8px", borderBottom:"1px solid #1f2937" }}>평균순위</th>
-                  <th style={{ padding:"10px 8px", borderBottom:"1px solid #1f2937", textAlign:"right" }}>비용</th>
-                </tr>
+                    {level === "ad" && (
+                      <>
+                        <th style={{ padding:"10px 8px", borderBottom:"1px solid #1f2937" }}>썸네일</th>
+                        <th style={{ padding:"10px 8px", borderBottom:"1px solid #1f2937" }}>상품명</th>
+                        <th style={{ padding:"10px 8px", borderBottom:"1px solid #1f2937" }}>몰상품ID</th>
+                        <th style={{ padding:"10px 8px", borderBottom:"1px solid #1f2937", textAlign:"right" }}>입찰가</th>
+                      </>
+                    )}
+                    <th style={{ padding:"10px 8px", borderBottom:"1px solid #1f2937" }}>이름</th>
+                    <th style={{ padding:"10px 8px", borderBottom:"1px solid #1f2937" }}>노출</th>
+                    <th style={{ padding:"10px 8px", borderBottom:"1px solid #1f2937" }}>클릭</th>
+                    <th style={{ padding:"10px 8px", borderBottom:"1px solid #1f2937" }}>CTR</th>
+                    <th style={{ padding:"10px 8px", borderBottom:"1px solid #1f2937" }}>CPC</th>
+                    <th style={{ padding:"10px 8px", borderBottom:"1px solid #1f2937" }}>평균순위</th>
+                    <th style={{ padding:"10px 8px", borderBottom:"1px solid #1f2937", textAlign:"right" }}>비용</th>
+                  </tr>
               </thead>
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.id}>
+                    +     {level === "ad" && (
++       <>
++         <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>
++           {r.imageUrl ? (
++             <img
++               src={r.imageUrl}
++               alt="thumbnail"
++               width={60}
++               height={60}
++               style={{ borderRadius: 8, objectFit: "cover" }}
++             />
++           ) : (
++             "-"
++           )}
++         </td>
++         <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>
++           {r.productName || "-"}
++         </td>
++         <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>
++           {r.mallProductId || "-"}
++         </td>
++         <td style={{ padding:"8px", borderBottom:"1px solid #1f2937", textAlign:"right" }}>
++           {r.bidAmt ? num(r.bidAmt) : "-"}
++         </td>
++       </>
++     )}
                     <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>{r.name}</td>
                     <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>{num(r.impCnt)}</td>
                     <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>{num(r.clkCnt)}</td>
