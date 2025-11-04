@@ -1,155 +1,90 @@
-export const runtime = "nodejs";
 import crypto from "crypto";
 
-const BASE = "https://api.searchad.naver.com";
-
-function sign(secretKey, method, path) {
-  const ts = String(Date.now());
-  const sig = crypto.createHmac("sha256", secretKey)
-    .update(`${ts}.${method}.${path}`)
-    .digest("base64");
-  return { ts, sig };
-}
-function headers(apiKey, secretKey, customerId, method, path) {
-  const { ts, sig } = sign(secretKey, method, path);
-  return {
-    "X-Timestamp": ts,
-    "X-API-KEY": apiKey,
-    "X-Customer": String(customerId),
-    "X-Signature": sig,
-    "Content-Type": "application/json",
-  };
-}
-function env() {
-  const apiKey = process.env.API_KEY || process.env.NAVER_API_KEY;
-  const secretKey = process.env.SECRET_KEY || process.env.NAVER_SECRET_KEY;
-  const customerId = process.env.CUSTOMER_ID || process.env.NAVER_CUSTOMER_ID;
-  if (!apiKey || !secretKey || !customerId) throw new Error("env(API_KEY/SECRET_KEY/CUSTOMER_ID) 필요");
-  return { apiKey, secretKey, customerId };
-}
-function range(url) {
-  const u = new URL(url);
-  const start = u.searchParams.get("start");
-  const end = u.searchParams.get("end");
-  const adgroupId = u.searchParams.get("adgroupId");
-  const campaignId = u.searchParams.get("campaignId");
-  if (!start || !end) throw new Error("start/end 필요");
-  return { start, end, adgroupId, campaignId };
-}
-
-// 재활용: 그룹/캠페인 → 소재 로딩
-async function listAdgroups(creds, campaignId) {
-  const path = "/ncc/adgroups";
-  const qs = campaignId ? `?nccCampaignId=${encodeURIComponent(campaignId)}` : "";
-  const res = await fetch(`${BASE}${path}${qs}`, {
-    method: "GET",
-    headers: headers(creds.apiKey, creds.secretKey, creds.customerId, "GET", path),
-    cache: "no-store",
-  });
-  if (!res.ok) throw new Error(`adgroups ${res.status}: ${await res.text()}`);
-  const arr = await res.json();
-  return (arr || []).map(g => ({ id: g.nccAdgroupId, name: g.name }));
-}
-async function listAdsOfGroup(creds, adgroupId) {
-  const path = "/ncc/ads";
-  const qs = `?nccAdgroupId=${encodeURIComponent(adgroupId)}`;
-  const res = await fetch(`${BASE}${path}${qs}`, {
-    method: "GET",
-    headers: headers(creds.apiKey, creds.secretKey, creds.customerId, "GET", path),
-    cache: "no-store",
-  });
-  if (!res.ok) throw new Error(`ads ${adgroupId} ${res.status}: ${await res.text()}`);
-  const arr = await res.json();
-  return (arr || []).map(a => ({
-    id: a.nccAdId,
-    name: a.ad?.name || a.ad?.nickname || a.name || a.nccAdId,
-  }));
-}
-async function listAds(creds, { adgroupId, campaignId }) {
-  if (adgroupId) {
-    return await listAdsOfGroup(creds, adgroupId);
-  }
-  const groups = await listAdgroups(creds, campaignId || null);
-  const CONC = 10;
-  let all = [];
-  for (let i = 0; i < groups.length; i += CONC) {
-    const part = groups.slice(i, i + CONC);
-    const chunks = await Promise.all(part.map(g => listAdsOfGroup(creds, g.id)));
-    for (const c of chunks) all.push(...c);
-  }
-  return all;
-}
-
-// 단일 소재 id로 /stats 호출
-async function fetchStatPerAd(creds, adId, start, end) {
-  const path = "/stats";
-  const params = new URLSearchParams();
-  params.set("id", adId); // 단건
-  params.set("fields", JSON.stringify(["impCnt","clkCnt","salesAmt","ctr","cpc","avgRnk"]));
-  params.set("timeRange", JSON.stringify({ since: start, until: end }));
-
-  const res = await fetch(`${BASE}${path}?${params.toString()}`, {
-    method: "GET",
-    headers: headers(creds.apiKey, creds.secretKey, creds.customerId, "GET", path),
-    cache: "no-store",
-  });
-  if (!res.ok) throw new Error(`stats ${adId} ${res.status}: ${await res.text()}`);
-
-  const data = await res.json();
-  const arr = Array.isArray(data) ? data : (data?.data || data?.items || []);
-  let agg = { imp:0, clk:0, amt:0, ctr:0, cpc:0, rnk:0, n:0 };
-  for (const it of arr) {
-    const list = Array.isArray(it?.items) ? it.items : [it];
-    for (const x of list) {
-      agg.imp += Number(x.impCnt ?? 0);
-      agg.clk += Number(x.clkCnt ?? 0);
-      agg.amt += Number(x.salesAmt ?? 0);
-      agg.ctr += Number(x.ctr ?? 0);
-      agg.cpc += Number(x.cpc ?? 0);
-      agg.rnk += Number(x.avgRnk ?? 0);
-      agg.n += 1;
-    }
-  }
-  return {
-    impCnt: Math.round(agg.imp),
-    clkCnt: Math.round(agg.clk),
-    salesAmt: Math.round(agg.amt),
-    ctr: agg.n ? agg.ctr / agg.n : 0,
-    cpc: agg.n ? agg.cpc / agg.n : 0,
-    avgRnk: agg.n ? agg.rnk / agg.n : 0,
-  };
-}
-
-// GET /api/stats/ads?start=YYYY-MM-DD&end=YYYY-MM-DD[&adgroupId=grp-...][&campaignId=cmp-...]
 export async function GET(req) {
-  try {
-    const creds = env();
-    const { start, end, adgroupId, campaignId } = range(req.url);
+  const { searchParams } = new URL(req.url);
+  const start = searchParams.get("start");
+  const end = searchParams.get("end");
+  const adgroupId = searchParams.get("adgroupId");
+  const campaignId = searchParams.get("campaignId");
 
-    const ads = await listAds(creds, { adgroupId, campaignId });
-    if (!ads.length) return Response.json({ start, end, total: 0, rows: [] });
-
-    const CONC = 10;
-    const rows = [];
-    let total = 0;
-    for (let i = 0; i < ads.length; i += CONC) {
-      const part = ads.slice(i, i + CONC);
-      const stats = await Promise.all(
-        part.map(async a => ({ id: a.id, name: a.name, ...(await fetchStatPerAd(creds, a.id, start, end)) }))
-      );
-      for (const r of stats) {
-        rows.push(r);
-        total += r.salesAmt;
-      }
-    }
-    rows.sort((a, b) => b.salesAmt - a.salesAmt);
-    return Response.json({
-      start, end,
-      adgroupId: adgroupId || null,
-      campaignId: campaignId || null,
-      total: Math.round(total), rows
-    });
-  } catch (e) {
-    return new Response(JSON.stringify({ error: String(e.message || e) }), { status: 500 });
+  if (!start || !end) {
+    return Response.json({ error: "start and end are required" }, { status: 400 });
   }
+
+  const API_KEY = process.env.API_KEY || process.env.NAVER_API_KEY;
+  const SECRET_KEY = process.env.SECRET_KEY || process.env.NAVER_SECRET_KEY;
+  const CUSTOMER_ID = process.env.CUSTOMER_ID || process.env.NAVER_CUSTOMER_ID;
+  const BASE_URL = "https://api.searchad.naver.com";
+  const ts = Date.now().toString();
+
+  function makeSignature(ts, method, path) {
+    const msg = `${ts}.${method}.${path}`;
+    return crypto.createHmac("sha256", SECRET_KEY).update(msg).digest("base64");
+  }
+
+  const headers = (path) => ({
+    "X-Timestamp": ts,
+    "X-API-KEY": API_KEY,
+    "X-Customer": CUSTOMER_ID,
+    "X-Signature": makeSignature(ts, "GET", path),
+  });
+
+  // 1️⃣ 광고그룹 목록 조회
+  const adgroupPath = "/ncc/adgroups";
+  const adgroupUrl = campaignId
+    ? `${BASE_URL}${adgroupPath}?nccCampaignId=${campaignId}`
+    : adgroupId
+    ? `${BASE_URL}${adgroupPath}?nccAdgroupId=${adgroupId}`
+    : `${BASE_URL}${adgroupPath}`;
+
+  const adgroupsRes = await fetch(adgroupUrl, { headers: headers(adgroupPath) });
+  const adgroups = await adgroupsRes.json();
+
+  // 2️⃣ 소재 목록 조회
+  const adPath = "/ncc/ads";
+  const adsPromises = adgroups.map((g) =>
+    fetch(`${BASE_URL}${adPath}?nccAdgroupId=${g.nccAdgroupId}`, {
+      headers: headers(adPath),
+    }).then((r) => r.json())
+  );
+  const adsArrays = await Promise.all(adsPromises);
+  const ads = adsArrays.flat();
+
+  // 3️⃣ 통계 조회 및 병합
+  const statsPath = "/stats";
+  const statsPromises = ads.map((a) =>
+    fetch(
+      `${BASE_URL}${statsPath}?id=${a.nccAdId}&fields=[impCnt,clkCnt,salesAmt,ctr,cpc,avgRnk]&timeRange={\"since\":\"${start}\",\"until\":\"${end}\"}`,
+      { headers: headers(statsPath) }
+    ).then(async (res) => ({
+      id: a.nccAdId,
+      ad: a,
+      data: await res.json(),
+    }))
+  );
+
+  const stats = await Promise.all(statsPromises);
+
+  const rows = stats.map(({ id, ad, data }) => {
+    const s = data?.data?.[0] || {};
+    const ref = ad.referenceData || {};
+    return {
+      id,
+      nccAdId: ad.nccAdId,
+      impCnt: s.impCnt || 0,
+      clkCnt: s.clkCnt || 0,
+      salesAmt: s.salesAmt || 0,
+      ctr: s.ctr || 0,
+      cpc: s.cpc || 0,
+      avgRnk: s.avgRnk || 0,
+      bidAmt: ad.adAttr?.bidAmt ?? null,
+      mallProductId: ref.mallProductId ?? null,
+      imageUrl: ref.imageUrl ?? null,
+      productName: ref.productName ?? null,
+    };
+  });
+
+  const total = rows.reduce((sum, r) => sum + (r.salesAmt || 0), 0);
+
+  return Response.json({ start, end, total, rows });
 }
