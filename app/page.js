@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 /* ---------- utils ---------- */
 const fmtKRW = (n) => `₩${Math.round(Number(n) || 0).toLocaleString("ko-KR")}`;
@@ -23,146 +23,88 @@ export default function Page() {
 
   const [tab, setTab] = useState("campaign"); // "campaign" | "adgroup" | "ad"
 
-  // 목록 & 선택
-  const [campaigns, setCampaigns] = useState([]); // [{id,name,...}]
-  const [selectedCampaignIds, setSelectedCampaignIds] = useState(new Set()); // persist across tabs
-
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
+  const [preloaded, setPreloaded] = useState(false);
 
-  // 초기 캠페인 리스트 로딩(이름/ID 용)
-  useEffect(() => {
-    (async () => {
-      try {
-        const r = await fetch("/api/campaigns");
-        const j = await r.json();
-        setCampaigns((j.campaigns || []).map(c => ({ id: c.id, name: c.name })));
-      } catch (e) {
-        console.error(e);
-      }
-    })();
-  }, []);
+  // 간단 메모리 캐시: key = `${start}:${end}`
+  const cacheRef = useRef(new Map());
 
+  // 날짜 바꾸면 캐시 사용 중지(다시 미리 로드 필요)
+  useEffect(() => { setPreloaded(false); setRows([]); setTotal(0); }, [start, end]);
+
+  // 프리셋
   const presets = [
     { label: "어제", range: () => ({ s: yday, e: yday }) },
     { label: "최근 7일", range: () => {
-        const e = yday, d = new Date(`${yday}T00:00:00Z`); d.setUTCDate(d.getUTCDate() - 6);
+        const e = yday; const d = new Date(`${yday}T00:00:00Z`); d.setUTCDate(d.getUTCDate() - 6);
         const s = `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,"0")}-${String(d.getUTCDate()).padStart(2,"0")}`;
         return { s, e };
-      }},
+      } },
     { label: "최근 30일", range: () => {
-        const e = yday, d = new Date(`${yday}T00:00:00Z`); d.setUTCDate(d.getUTCDate() - 29);
+        const e = yday; const d = new Date(`${yday}T00:00:00Z`); d.setUTCDate(d.getUTCDate() - 29);
         const s = `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,"0")}-${String(d.getUTCDate()).padStart(2,"0")}`;
         return { s, e };
-      }},
+      } },
   ];
 
-  // 데이터 조회 (탭/선택/기간에 따라)
-  async function query() {
-    try {
-      setErr(""); setLoading(true);
-      let outRows = [], outTotal = 0;
-
-      if (tab === "campaign") {
-        const r = await fetch(`/api/stats/campaigns?start=${start}&end=${end}`);
-        const j = await r.json(); if (j.error) throw new Error(j.error);
-        outRows = j.rows || []; outTotal = j.total || 0;
-
-      } else if (tab === "adgroup") {
-        const ids = Array.from(selectedCampaignIds);
-        if (ids.length === 0) {
-          const r = await fetch(`/api/stats/adgroups?start=${start}&end=${end}`);
-          const j = await r.json(); if (j.error) throw new Error(j.error);
-          outRows = j.rows || []; outTotal = j.total || 0;
-        } else {
-          // 선택된 캠페인별 호출 병렬 처리 후 병합
-          const CONC = 6;
-          for (let i = 0; i < ids.length; i += CONC) {
-            const part = ids.slice(i, i + CONC);
-            const res = await Promise.all(
-              part.map(id => fetch(`/api/stats/adgroups?start=${start}&end=${end}&campaignId=${encodeURIComponent(id)}`).then(r => r.json()))
-            );
-            for (const j of res) {
-              if (j.error) throw new Error(j.error);
-              outRows.push(...(j.rows || []));
-              outTotal += j.total || 0;
-            }
-          }
-          // 동일 그룹이 중복되진 않지만 혹시 몰라 id 기준 dedupe
-          const seen = new Set(); outRows = outRows.filter(r => (seen.has(r.id) ? false : (seen.add(r.id), true)));
-          outRows.sort((a,b)=>b.salesAmt-a.salesAmt);
-        }
-
-      } else { // tab === "ad"
-        const ids = Array.from(selectedCampaignIds);
-        if (ids.length === 0) {
-          const r = await fetch(`/api/stats/ads?start=${start}&end=${end}`);
-          const j = await r.json(); if (j.error) throw new Error(j.error);
-          outRows = j.rows || []; outTotal = j.total || 0;
-        } else {
-          const CONC = 4;
-          for (let i = 0; i < ids.length; i += CONC) {
-            const part = ids.slice(i, i + CONC);
-            const res = await Promise.all(
-              part.map(id => fetch(`/api/stats/ads?start=${start}&end=${end}&campaignId=${encodeURIComponent(id)}`).then(r => r.json()))
-            );
-            for (const j of res) {
-              if (j.error) throw new Error(j.error);
-              outRows.push(...(j.rows || []));
-              outTotal += j.total || 0;
-            }
-          }
-          const seen = new Set(); outRows = outRows.filter(r => (seen.has(r.id) ? false : (seen.add(r.id), true)));
-          outRows.sort((a,b)=>b.salesAmt-a.salesAmt);
-        }
-      }
-
-      setRows(outRows); setTotal(outTotal);
-    } catch (e) {
-      console.error(e); setRows([]); setTotal(0); setErr(String(e?.message || e));
-    } finally {
-      setLoading(false);
-    }
+  // 캐시에서 보여주기
+  function showFromCache(key, which) {
+    const bucket = cacheRef.current.get(key);
+    if (!bucket) return;
+    const j = bucket[which] || { rows: [], total: 0 };
+    setRows(j.rows || []);
+    setTotal(j.total || 0);
   }
 
-  // 탭 바꿀 때 자동 조회 (원하면 제거)
-  useEffect(() => { query(); /* eslint-disable-next-line */ }, [tab]);
+  // 탭 전환 시 캐시만 사용
+  function onChangeTab(next) {
+    setTab(next);
+    const key = `${start}:${end}`;
+    if (preloaded && cacheRef.current.has(key)) showFromCache(key, next);
+    else { setRows([]); setTotal(0); }
+  }
 
-  // 캠페인 선택 토글
-  const toggleCampaign = (id) => {
-    setSelectedCampaignIds(prev => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  };
-  const allCampaignIds = useMemo(() => rows.map(r => r.id), [rows]); // 캠페인 탭에서만 의미
-  const allChecked = useMemo(() => {
-    if (tab !== "campaign") return false;
-    if (!rows.length) return false;
-    return rows.every(r => selectedCampaignIds.has(r.id));
-  }, [tab, rows, selectedCampaignIds]);
+  // 기간 미리 로드(각 엔드포인트 1회 호출 → 캐시에 저장)
+  async function preload() {
+    try {
+      setErr(""); setLoading(true);
 
-  const toggleAllCampaigns = () => {
-    if (tab !== "campaign") return;
-    setSelectedCampaignIds(prev => {
-      if (allChecked) {
-        // 모두 해제
-        const next = new Set(prev);
-        for (const id of allCampaignIds) next.delete(id);
-        return next;
-      } else {
-        // 모두 선택(현재 페이지 rows 기준)
-        const next = new Set(prev);
-        for (const id of allCampaignIds) next.add(id);
-        return next;
+      const key = `${start}:${end}`;
+      // 이미 캐시가 있으면 재호출 없이 사용
+      if (cacheRef.current.has(key)) {
+        setPreloaded(true);
+        showFromCache(key, tab);
+        return;
       }
-    });
-  };
 
-  /* ---------- styles ---------- */
+      const [campRes, grpRes, adRes] = await Promise.all([
+        fetch(`/api/stats/campaigns?start=${start}&end=${end}`).then(r=>r.json()),
+        fetch(`/api/stats/adgroups?start=${start}&end=${end}`).then(r=>r.json()),
+        fetch(`/api/stats/ads?start=${start}&end=${end}`).then(r=>r.json()),
+      ]);
+      if (campRes.error) throw new Error(campRes.error);
+      if (grpRes.error) throw new Error(grpRes.error);
+      if (adRes.error) throw new Error(adRes.error);
+
+      cacheRef.current.set(key, {
+        campaign: campRes,
+        adgroup: grpRes,
+        ad: adRes,
+      });
+
+      setPreloaded(true);
+      showFromCache(key, tab);
+    } catch (e) {
+      setErr(String(e?.message || e));
+      setPreloaded(false);
+      setRows([]); setTotal(0);
+    } finally { setLoading(false); }
+  }
+
+  /* ----- styles ----- */
   const page = { minHeight:"100vh", background:"#0b0f1a", color:"#e5e7eb",
     display:"flex", alignItems:"center", justifyContent:"center", padding:24 };
   const card = { width:"min(1180px,95vw)", background:"#0f172a", border:"1px solid #1f2940",
@@ -177,8 +119,39 @@ export default function Page() {
       <div style={card}>
         {/* 헤더 */}
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
-          <h1 style={{ fontSize:18, fontWeight:700 }}>네이버 광고 집계</h1>
+          <h1 style={{ fontSize:18, fontWeight:700 }}>네이버 광고 집계 (기간 미리 로드)</h1>
           <span style={{ fontSize:12, color:"#93a3b8" }}>KST 기준</span>
+        </div>
+
+        {/* 기간 & 미리 로드 */}
+        <div style={{ ...box, marginBottom:16 }}>
+          <div style={{ fontWeight:700, marginBottom:8 }}>Step 1. 기간 선택 후 “미리 로드”</div>
+          <div style={{ display:"flex", gap:12, flexWrap:"wrap", alignItems:"center" }}>
+            <div>
+              <div style={label}>시작일</div>
+              <input type="date" value={start} max={end} onChange={(e)=>setStart(e.target.value)} style={sel} />
+            </div>
+            <div>
+              <div style={label}>종료일</div>
+              <input type="date" value={end} min={start} onChange={(e)=>setEnd(e.target.value)} style={sel} />
+            </div>
+            <div style={{ display:"flex", gap:8 }}>
+              {presets.map(p=>(
+                <button key={p.label} style={btn} onClick={()=>{ const {s,e}=p.range(); setStart(s); setEnd(e); }}>
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            <div style={{ marginLeft:"auto" }}>
+              <button style={{ ...btn, background:"#25436a" }} onClick={preload}>
+                {loading ? "미리 로드 중…" : "미리 로드"}
+              </button>
+            </div>
+          </div>
+          <div style={{ marginTop:8, fontSize:13 }}>
+            {preloaded ? "✅ 미리 로드 완료 — 탭 전환 시 추가 호출 없이 표시됩니다." : "기간을 선택하고 미리 로드를 실행하세요."}
+          </div>
+          {!!err && <div style={{ marginTop:8, fontSize:12, color:"#fca5a5" }}>* {err}</div>}
         </div>
 
         {/* 탭 */}
@@ -187,77 +160,30 @@ export default function Page() {
             {key:"campaign", label:"캠페인"},
             {key:"adgroup", label:"그룹"},
             {key:"ad", label:"소재"},
-          ].map(t => (
-            <button
-              key={t.key}
-              onClick={()=>setTab(t.key)}
-              style={{
-                ...btn,
-                background: tab===t.key ? "#25436a" : "#1f2937"
-              }}
-            >
+          ].map(t=>(
+            <button key={t.key} onClick={()=>onChangeTab(t.key)} style={{ ...btn, background: tab===t.key ? "#25436a" : "#1f2937" }}>
               {t.label}
-              {t.key !== "campaign" && selectedCampaignIds.size>0 && (
-                <span style={{ marginLeft:6, fontSize:12, opacity:.8 }}>
-                  (선택 캠페인 {selectedCampaignIds.size}개)
-                </span>
-              )}
             </button>
           ))}
         </div>
 
-        {/* 컨트롤 바 */}
-        <div style={{ ...box, marginBottom:16 }}>
-          <div style={label}>기간 선택</div>
-          <div style={{ display:"flex", gap:12, flexWrap:"wrap", alignItems:"center" }}>
-            <div>
-              <div style={{ fontSize:12, color:"#9ca3af", marginBottom:6 }}>시작일</div>
-              <input type="date" value={start} max={end} onChange={(e)=>setStart(e.target.value)} style={sel} />
-            </div>
-            <div>
-              <div style={{ fontSize:12, color:"#9ca3af", marginBottom:6 }}>종료일</div>
-              <input type="date" value={end} min={start} onChange={(e)=>setEnd(e.target.value)} style={sel} />
-            </div>
-            <div style={{ display:"flex", gap:8 }}>
-              {presets.map(p => (
-                <button key={p.label} style={btn} onClick={()=>{ const {s,e}=p.range(); setStart(s); setEnd(e); }}>
-                  {p.label}
-                </button>
-              ))}
-            </div>
-            <div style={{ marginLeft:"auto" }}>
-              <button style={{ ...btn, background:"#25436a" }} onClick={query}>{loading ? "조회 중…" : "조회"}</button>
-            </div>
-          </div>
-          {!!err && <div style={{ marginTop:8, fontSize:12, color:"#fca5a5" }}>* {err}</div>}
-        </div>
-
         {/* 합계 */}
-        <div style={{ ...box, marginBottom:16 }}>
-          <div style={label}>기간 합계</div>
+        <div style={{ ...box, marginBottom:16, opacity: preloaded ? 1 : 0.6, pointerEvents: preloaded ? "auto" : "none" }}>
+          <div style={{ fontSize:12, color:"#9ca3af", marginBottom:6 }}>기간 합계</div>
           <div style={{ fontSize:36, fontWeight:800 }}>{fmtKRW(total)}</div>
         </div>
 
         {/* 테이블 */}
-        <div style={box}>
-          <div style={label}>
-            {tab === "campaign"
-              ? `캠페인 ${rows.length.toLocaleString("ko-KR")}건`
-              : tab === "adgroup"
-              ? `그룹 ${rows.length.toLocaleString("ko-KR")}건`
-              : `소재 ${rows.length.toLocaleString("ko-KR")}건`
-            } {loading ? "(로딩…)" : ""}
+        <div style={{ ...box, opacity: preloaded ? 1 : 0.5, pointerEvents: preloaded ? "auto" : "none" }}>
+          <div style={{ fontSize:12, color:"#9ca3af", marginBottom:6 }}>
+            {tab==="campaign" ? "캠페인" : tab==="adgroup" ? "그룹" : "소재"} {rows.length.toLocaleString("ko-KR")}건
+            {!preloaded && " — 기간 미리 로드가 필요합니다."}
           </div>
 
           <div style={{ overflowX:"auto" }}>
             <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
               <thead>
                 <tr style={{ textAlign:"left", background:"#0b1020" }}>
-                  <th style={{ padding:"10px 8px", borderBottom:"1px solid #1f2937", width: tab==="campaign" ? 40 : 0 }}>
-                    {tab==="campaign" && (
-                      <input type="checkbox" checked={allChecked} onChange={toggleAllCampaigns} />
-                    )}
-                  </th>
                   <th style={{ padding:"10px 8px", borderBottom:"1px solid #1f2937" }}>
                     {tab==="campaign" ? "캠페인" : tab==="adgroup" ? "그룹" : "소재"}
                   </th>
@@ -270,17 +196,8 @@ export default function Page() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map(r => (
+                {rows.map(r=>(
                   <tr key={r.id}>
-                    <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>
-                      {tab==="campaign" && (
-                        <input
-                          type="checkbox"
-                          checked={selectedCampaignIds.has(r.id)}
-                          onChange={()=>toggleCampaign(r.id)}
-                        />
-                      )}
-                    </td>
                     <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>{r.name}</td>
                     <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>{num(r.impCnt)}</td>
                     <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>{num(r.clkCnt)}</td>
@@ -290,20 +207,14 @@ export default function Page() {
                     <td style={{ padding:"8px", borderBottom:"1px solid #1f2937", textAlign:"right" }}>{fmtKRW(r.salesAmt)}</td>
                   </tr>
                 ))}
-                {!rows.length && !loading && (
-                  <tr><td colSpan={8} style={{ padding:"14px", color:"#9ca3af", textAlign:"center" }}>데이터가 없습니다.</td></tr>
+                {!rows.length && preloaded && (
+                  <tr><td colSpan={7} style={{ padding:"14px", color:"#9ca3af", textAlign:"center" }}>데이터가 없습니다.</td></tr>
                 )}
               </tbody>
             </table>
           </div>
-
-          {/* 안내 */}
-          {tab!=="campaign" && selectedCampaignIds.size>0 && (
-            <div style={{ marginTop:10, fontSize:12, color:"#93a3b8" }}>
-              * 캠페인 {selectedCampaignIds.size}개 기준으로 집계됨
-            </div>
-          )}
         </div>
+
       </div>
     </div>
   );
