@@ -51,7 +51,7 @@ async function fetchStatPerGroup({ apiKey, secretKey, customerId }, id, start, e
   const path = "/stats";
   const params = new URLSearchParams();
   params.set("id", id); // 단일 호출
-  params.set("fields", JSON.stringify(["impCnt","clkCnt","salesAmt","ctr","cpc","avgRnk"]));
+  params.set("fields", JSON.stringify(["impCnt","clkCnt","salesAmt","ctr","cpc","avgRnk","ccnt","convAmt"])); // ✅ 전환수(ccnt), 전환매출(convAmt) 포함
   params.set("timeRange", JSON.stringify({ since: start, until: end }));
 
   const res = await fetch(`${BASE}${path}?${params.toString()}`, {
@@ -63,7 +63,7 @@ async function fetchStatPerGroup({ apiKey, secretKey, customerId }, id, start, e
 
   const data = await res.json();
   const arr = Array.isArray(data) ? data : (data?.data || data?.items || []);
-  let agg = { imp:0, clk:0, amt:0, ctr:0, cpc:0, rnk:0, n:0 };
+  let agg = { imp:0, clk:0, amt:0, ctr:0, cpc:0, rnk:0, conv:0, convAmt:0, n:0 };
   for (const it of arr) {
     const list = Array.isArray(it?.items) ? it.items : [it];
     for (const x of list) {
@@ -73,6 +73,8 @@ async function fetchStatPerGroup({ apiKey, secretKey, customerId }, id, start, e
       agg.ctr += Number(x.ctr ?? 0);
       agg.cpc += Number(x.cpc ?? 0);
       agg.rnk += Number(x.avgRnk ?? 0);
+      agg.conv += Number(x.ccnt ?? 0);      // ✅ 전환수 합산
+      agg.convAmt += Number(x.convAmt ?? 0);   // ✅ 전환매출액 합산  
       agg.n += 1;
     }
   }
@@ -83,6 +85,8 @@ async function fetchStatPerGroup({ apiKey, secretKey, customerId }, id, start, e
     ctr: agg.n ? agg.ctr / agg.n : 0,
     cpc: agg.n ? agg.cpc / agg.n : 0,
     avgRnk: agg.n ? agg.rnk / agg.n : 0,
+    ccnt: Math.round(agg.conv),          // ✅ 전환수 반환
+    convAmt: Math.round(agg.convAmt),    // ✅ 전환매출액 반환  
   };
 }
 

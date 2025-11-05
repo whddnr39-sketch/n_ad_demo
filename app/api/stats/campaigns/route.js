@@ -60,7 +60,7 @@ async function fetchStatPerCampaign(env, id, start, end) {
   const path = "/stats";
   const params = new URLSearchParams();
   params.set("id", id); // ← 단일 id
-  params.set("fields", JSON.stringify(["impCnt","clkCnt","salesAmt","ctr","cpc","avgRnk"]));
+  params.set("fields", JSON.stringify(["impCnt","clkCnt","salesAmt","ctr","cpc","avgRnk","ccnt","convAmt"])); // ✅ 전환수(ccnt), 전환매출(convAmt) 포함
   params.set("timeRange", JSON.stringify({ since: start, until: end }));
   const url = `${BASE}${path}?${params.toString()}`;
 
@@ -73,7 +73,7 @@ async function fetchStatPerCampaign(env, id, start, end) {
 
   const data = await res.json();
   const arr = Array.isArray(data) ? data : (data?.data || data?.items || []);
-  let agg = { impCnt:0, clkCnt:0, salesAmt:0, ctrSum:0, cpcSum:0, rnkSum:0, n:0 };
+  let agg = { impCnt:0, clkCnt:0, salesAmt:0, ctrSum:0, cpcSum:0, rnkSum:0, convSum:0, convAmtSum:0, n:0 };
 
   for (const it of arr) {
     const list = Array.isArray(it?.items) ? it.items : [it];
@@ -84,6 +84,8 @@ async function fetchStatPerCampaign(env, id, start, end) {
       agg.ctrSum += Number(x.ctr ?? 0);
       agg.cpcSum += Number(x.cpc ?? 0);
       agg.rnkSum += Number(x.avgRnk ?? 0);
+      agg.convSum += Number(x.ccnt ?? 0);      // ✅ 전환수 합산
+      agg.convAmtSum += Number(x.convAmt ?? 0);   // ✅ 전환매출액 합산 
       agg.n += 1;
     }
   }
@@ -95,6 +97,8 @@ async function fetchStatPerCampaign(env, id, start, end) {
     ctr: agg.n ? agg.ctrSum / agg.n : 0,
     cpc: agg.n ? agg.cpcSum / agg.n : 0,
     avgRnk: agg.n ? agg.rnkSum / agg.n : 0,
+    ccnt: Math.round(agg.convSum),          // ✅ 전환수 반환
+    convAmt: Math.round(agg.convAmtSum),    // ✅ 전환매출액 반환 
   };
 }
 

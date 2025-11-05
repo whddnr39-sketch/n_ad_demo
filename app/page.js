@@ -315,14 +315,8 @@ export default function Page() {
                   <th style={{ padding: "10px 8px", borderBottom: "1px solid #1f2937" }}>CPC</th>
                   <th style={{ padding: "10px 8px", borderBottom: "1px solid #1f2937" }}>평균순위</th>
                   <th style={{ padding: "10px 8px", borderBottom: "1px solid #1f2937", textAlign: "right" }}>비용</th>
-                  {/* ✅ 소재(ad) 레벨일 때만 표시 */}
-{level === "ad" && (
-  <>
-    <th style={{ padding:"10px 8px", borderBottom:"1px solid #1f2937" }}>전환수</th>
-    <th style={{ padding:"10px 8px", borderBottom:"1px solid #1f2937", textAlign:"right" }}>전환매출</th>
-  </>
-)}
-
+                  <th style={{ padding:"10px 8px", borderBottom:"1px solid #1f2937" }}>전환수</th>
+                  <th style={{ padding:"10px 8px", borderBottom:"1px solid #1f2937", textAlign:"right" }}>전환매출</th>
                 </tr>
               </thead>
               <tbody>
@@ -362,15 +356,9 @@ export default function Page() {
                     <td style={{ padding: "8px", borderBottom: "1px solid #1f2937" }}>{num(r.avgRnk)}</td>
                     <td style={{ padding: "8px", borderBottom: "1px solid #1f2937", textAlign: "right" }}>
                       {fmtKRW(r.salesAmt)}
+                    <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>{num(r.ccnt)}</td>
+                    <td style={{ padding:"8px", borderBottom:"1px solid #1f2937", textAlign:"right" }}>{fmtKRW(r.convAmt)}</td>
                     </td>
-                    {/* ✅ 소재 레벨에서만 노출 */}
-{level === "ad" && (
-  <>
-    <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>{num(r.ccnt)}</td>
-    <td style={{ padding:"8px", borderBottom:"1px solid #1f2937", textAlign:"right" }}>{fmtKRW(r.convAmt)}</td>
-  </>
-)}
-
                   </tr>
                 ))}
                 {!rows.length && !loading && (
