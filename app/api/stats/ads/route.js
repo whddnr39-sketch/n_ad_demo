@@ -108,7 +108,7 @@ async function fetchStatPerAd(creds, adId, start, end) {
       "ctr",
       "cpc",
       "avgRnk",
-      "convCnt",   // ✅ 전환수 추가
+      "ccnt",   // ✅ 전환수 추가
       "convAmt"    // ✅ 전환매출액 추가
     ])
   );
@@ -136,7 +136,7 @@ async function fetchStatPerAd(creds, adId, start, end) {
       agg.ctr += Number(x.ctr ?? 0);
       agg.cpc += Number(x.cpc ?? 0);
       agg.rnk += Number(x.avgRnk ?? 0);
-      agg.conv += Number(x.convCnt ?? 0);      // ✅ 전환수 합산
+      agg.conv += Number(x.ccnt ?? 0);      // ✅ 전환수 합산
       agg.convAmt += Number(x.convAmt ?? 0);   // ✅ 전환매출액 합산
       agg.n += 1;
     }
@@ -151,7 +151,7 @@ async function fetchStatPerAd(creds, adId, start, end) {
     avgRnk: agg.n ? agg.rnk / agg.n : 0,
 
     // ✅ 새로 추가되는 반환값
-    convCnt: Math.round(agg.conv),
+    ccnt: Math.round(agg.conv),
     convAmt: Math.round(agg.convAmt),
   };
 }
