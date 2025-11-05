@@ -354,11 +354,9 @@ export default function Page() {
                     <td style={{ padding: "8px", borderBottom: "1px solid #1f2937" }}>{pct(r.ctr)}</td>
                     <td style={{ padding: "8px", borderBottom: "1px solid #1f2937" }}>{num(r.cpc)}</td>
                     <td style={{ padding: "8px", borderBottom: "1px solid #1f2937" }}>{num(r.avgRnk)}</td>
-                    <td style={{ padding: "8px", borderBottom: "1px solid #1f2937", textAlign: "right" }}>
-                      {fmtKRW(r.salesAmt)}</td>
+                    <td style={{ padding: "8px", borderBottom: "1px solid #1f2937", textAlign: "right" }}>{fmtKRW(r.salesAmt)}</td>
                     <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>{num(r.ccnt)}</td>
                     <td style={{ padding:"8px", borderBottom:"1px solid #1f2937", textAlign:"right" }}>{fmtKRW(r.convAmt)}</td>
-                    </td>
                   </tr>
                 ))}
                 {!rows.length && !loading && (
