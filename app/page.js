@@ -20,7 +20,7 @@ function kstYesterdayDash() {
 export default function Page() {
   // 주 전환(xlsx) 업로드 상태
   const [convFile, setConvFile] = useState(null);
-  const [mainConvMap, setMainConvMap] = useState({}); // { mallProductId: { convCnt, convAmt } }
+  const [mainConvMap, setMainConvMap] = useState({}); // { mallProductId: { mainCcnt, mainConvAmt } }
   const [uploading, setUploading] = useState(false);
 
   // 날짜
@@ -160,13 +160,13 @@ export default function Page() {
     const j = await r.json();
     if (!r.ok || j.error) throw new Error(j.error || "업로드 실패");
 
-    // 응답을 { mallProductId: {convCnt, convAmt} } 맵으로 정리
+    // 응답을 { mallProductId: {mainCcnt, mainConvAmt} } 맵으로 정리
     const map = {};
     (j.perProduct || []).forEach(p => {
       if (!p.mallProductId) return;
       map[p.mallProductId] = {
-        convCnt: Number(p.convCnt || 0),
-        convAmt: Number(p.convAmt || 0),
+        mainCcnt: Number(p.mainCcnt || 0),
+        mainConvAmt: Number(p.mainConvAmt || 0),
       };
     });
     setMainConvMap(map);
