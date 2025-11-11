@@ -161,14 +161,7 @@ export default function Page() {
     if (!r.ok || j.error) throw new Error(j.error || "업로드 실패");
 
     // 응답을 { mallProductId: {mainCcnt, mainConvAmt} } 맵으로 정리
-    const map = {};
-    (j.perProduct || []).forEach(p => {
-      if (!p.mallProductId) return;
-      map[p.mallProductId] = {
-        mainCcnt: Number(p.mainCcnt || 0),
-        mainConvAmt: Number(p.mainConvAmt || 0),
-      };
-    });
+    const map = j.byMallProductId || {};
     setMainConvMap(map);
   } catch (e) {
     console.error(e);
@@ -390,8 +383,8 @@ export default function Page() {
               </thead>
               <tbody>
   {rows.map((r) => {
-    const matchKey = r.mallProductId || r.referenceKey || r.productId || "";
-    const main = mainConvMap?.[matchKey] ?? { mainCcnt: 0, mainconvAmt: 0 };
+    const matchKey = r.mallProductId || r.byMallProductId || r.referenceKey || r.productId || "";
+    const main = mainConvMap?.[matchKey] ?? { mainccnt: 0, mainconvAmt: 0 };
 
     return (
       <tr key={r.id}>
@@ -427,8 +420,8 @@ export default function Page() {
         <td style={{ padding:"8px", borderBottom:"1px solid #1f2937", textAlign:"right" }}>{fmtKRW(r.convAmt)}</td>
 
         {/* ✅ 주 전환 데이터 표시 (엑셀 매칭) */}
-        <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>{num(main.mainCcnt)}</td>
-        <td style={{ padding:"8px", borderBottom:"1px solid #1f2937", textAlign:"right" }}>{fmtKRW(main.mainConvAmt)}</td>
+        <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>{num(main.mainccnt)}</td>
+        <td style={{ padding:"8px", borderBottom:"1px solid #1f2937", textAlign:"right" }}>{fmtKRW(main.mainconvAmt)}</td>
       </tr>
     );
   })}
