@@ -391,7 +391,7 @@ export default function Page() {
               <tbody>
   {rows.map((r) => {
     const matchKey = r.mallProductId || r.referenceKey || r.productId || "";
-    const main = mainConvMap?.[matchKey] ?? { convCnt: 0, convAmt: 0 };
+    const main = mainConvMap?.[matchKey] ?? { mainCcnt: 0, mainconvAmt: 0 };
 
     return (
       <tr key={r.id}>
@@ -427,8 +427,8 @@ export default function Page() {
         <td style={{ padding:"8px", borderBottom:"1px solid #1f2937", textAlign:"right" }}>{fmtKRW(r.convAmt)}</td>
 
         {/* ✅ 주 전환 데이터 표시 (엑셀 매칭) */}
-        <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>{num(main.convCnt)}</td>
-        <td style={{ padding:"8px", borderBottom:"1px solid #1f2937", textAlign:"right" }}>{fmtKRW(main.convAmt)}</td>
+        <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>{num(main.mainCcnt)}</td>
+        <td style={{ padding:"8px", borderBottom:"1px solid #1f2937", textAlign:"right" }}>{fmtKRW(main.mainConvAmt)}</td>
       </tr>
     );
   })}
