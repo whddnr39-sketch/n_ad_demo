@@ -18,6 +18,11 @@ function kstYesterdayDash() {
 
 /* ---------- 페이지 ---------- */
 export default function Page() {
+  // 주 전환(xlsx) 업로드 상태
+  const [convFile, setConvFile] = useState(null);
+  const [mainConvMap, setMainConvMap] = useState({}); // { mallProductId: { convCnt, convAmt } }
+  const [uploading, setUploading] = useState(false);
+
   // 날짜
   const yday = useMemo(() => kstYesterdayDash(), []);
   const [start, setStart] = useState(yday);
@@ -133,6 +138,47 @@ export default function Page() {
       setLoading(false);
     }
   }
+
+  async function uploadConversions() {
+  if (!convFile) {
+    setErr("업로드할 xlsx 파일을 선택해주세요.");
+    return;
+  }
+  try {
+    setErr("");
+    setUploading(true);
+
+    const fd = new FormData();
+    fd.append("file", convFile);
+    fd.append("start", start);
+    fd.append("end", end);
+
+    const r = await fetch("/api/conversions/upload", {
+      method: "POST",
+      body: fd,
+    });
+    const j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || "업로드 실패");
+
+    // 응답을 { mallProductId: {convCnt, convAmt} } 맵으로 정리
+    const map = {};
+    (j.perProduct || []).forEach(p => {
+      if (!p.mallProductId) return;
+      map[p.mallProductId] = {
+        convCnt: Number(p.convCnt || 0),
+        convAmt: Number(p.convAmt || 0),
+      };
+    });
+    setMainConvMap(map);
+  } catch (e) {
+    console.error(e);
+    setErr(String(e.message || e));
+  } finally {
+    setUploading(false);
+  }
+}
+
+
 
   /* ---------- 스타일 ---------- */
   const page = {
@@ -257,6 +303,26 @@ export default function Page() {
               <div style={label}>종료일</div>
               <input type="date" value={end} min={start} onChange={(e) => setEnd(e.target.value)} style={sel} />
             </div>
+            {/* 주 전환(xlsx) 업로드 */}
+            <div style={{ display:"flex", gap:8, alignItems:"end" }}>
+              <div>
+                <div style={label}>주 전환(xlsx)</div>
+                <input
+                  type="file"
+                  accept=".xlsx"
+                  onChange={(e) => setConvFile(e.target.files?.[0] || null)}
+                  style={{ ...sel, padding:"8px", minWidth: 220 }}
+               />
+              </div>
+              <button
+                style={{ ...btn, background:"#2b6b3f" }}
+                onClick={uploadConversions}
+                disabled={uploading || !convFile}
+                title="현재 선택한 시작/종료일 범위로 집계됩니다"
+            >
+                {uploading ? "업로드 중…" : "업로드"}
+              </button>
+            </div>
 
             {/* 프리셋 */}
             <div style={{ display: "flex", gap: 8, alignItems: "end" }}>
@@ -315,58 +381,67 @@ export default function Page() {
                   <th style={{ padding: "10px 8px", borderBottom: "1px solid #1f2937" }}>CPC</th>
                   <th style={{ padding: "10px 8px", borderBottom: "1px solid #1f2937" }}>평균순위</th>
                   <th style={{ padding: "10px 8px", borderBottom: "1px solid #1f2937", textAlign: "right" }}>비용</th>
-                  <th style={{ padding:"10px 8px", borderBottom:"1px solid #1f2937" }}>전환수</th>
+                  <th style={{ padding:"10px 8px", borderBottom:"1px solid #1f2937", textAlign:"right" }}>전환수</th>
                   <th style={{ padding:"10px 8px", borderBottom:"1px solid #1f2937", textAlign:"right" }}>전환매출</th>
+                  <th style={{ padding:"10px 8px", borderBottom:"1px solid #1f2937", textAlign:"right" }}>주 전환수</th>
+                  <th style={{ padding:"10px 8px", borderBottom:"1px solid #1f2937", textAlign:"right" }}>주 전환매출</th>
+
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => (
-                  <tr key={r.id}>
-                    {level === "ad" && (
-                      <>
-                        <td style={{ padding: "8px", borderBottom: "1px solid #1f2937" }}>
-                          {r.imageUrl ? (
-                            <img
-                              src={r.imageUrl}
-                              alt="thumbnail"
-                              width={60}
-                              height={60}
-                              style={{ borderRadius: 8, objectFit: "cover" }}
-                            />
-                          ) : (
-                            "-"
-                          )}
-                        </td>
-                        <td style={{ padding: "8px", borderBottom: "1px solid #1f2937" }}>
-                          {r.productName || "-"}
-                        </td>
-                        <td style={{ padding: "8px", borderBottom: "1px solid #1f2937" }}>
-                          {r.mallProductId || "-"}
-                        </td>
-                        <td style={{ padding: "8px", borderBottom: "1px solid #1f2937", textAlign: "right" }}>
-                          {r.bidAmt ? num(r.bidAmt) : "-"}
-                        </td>
-                      </>
-                    )}
-                    <td style={{ padding: "8px", borderBottom: "1px solid #1f2937" }}>{r.name}</td>
-                    <td style={{ padding: "8px", borderBottom: "1px solid #1f2937" }}>{num(r.impCnt)}</td>
-                    <td style={{ padding: "8px", borderBottom: "1px solid #1f2937" }}>{num(r.clkCnt)}</td>
-                    <td style={{ padding: "8px", borderBottom: "1px solid #1f2937" }}>{pct(r.ctr)}</td>
-                    <td style={{ padding: "8px", borderBottom: "1px solid #1f2937" }}>{num(r.cpc)}</td>
-                    <td style={{ padding: "8px", borderBottom: "1px solid #1f2937" }}>{num(r.avgRnk)}</td>
-                    <td style={{ padding: "8px", borderBottom: "1px solid #1f2937", textAlign: "right" }}>{fmtKRW(r.salesAmt)}</td>
-                    <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>{num(r.ccnt)}</td>
-                    <td style={{ padding:"8px", borderBottom:"1px solid #1f2937", textAlign:"right" }}>{fmtKRW(r.convAmt)}</td>
-                  </tr>
-                ))}
-                {!rows.length && !loading && (
-                  <tr>
-                    <td colSpan={7} style={{ padding: "14px", color: "#9ca3af", textAlign: "center" }}>
-                      데이터가 없습니다.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
+  {rows.map((r) => {
+    const matchKey = r.mallProductId || r.referenceKey || r.productId || "";
+    const main = mainConvMap?.[matchKey] ?? { convCnt: 0, convAmt: 0 };
+
+    return (
+      <tr key={r.id}>
+        {level === "ad" && (
+          <>
+            <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>
+              {r.imageUrl ? (
+                <img
+                  src={r.imageUrl}
+                  alt="thumbnail"
+                  width={60}
+                  height={60}
+                  style={{ borderRadius:8, objectFit:"cover" }}
+                />
+              ) : "-"}
+            </td>
+            <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>{r.productName || "-"}</td>
+            <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>{r.mallProductId || "-"}</td>
+            <td style={{ padding:"8px", borderBottom:"1px solid #1f2937", textAlign:"right" }}>
+              {r.bidAmt ? num(r.bidAmt) : "-"}
+            </td>
+          </>
+        )}
+
+        <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>{r.name}</td>
+        <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>{num(r.impCnt)}</td>
+        <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>{num(r.clkCnt)}</td>
+        <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>{pct(r.ctr)}</td>
+        <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>{num(r.cpc)}</td>
+        <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>{num(r.avgRnk)}</td>
+        <td style={{ padding:"8px", borderBottom:"1px solid #1f2937", textAlign:"right" }}>{fmtKRW(r.salesAmt)}</td>
+        <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>{num(r.ccnt)}</td>
+        <td style={{ padding:"8px", borderBottom:"1px solid #1f2937", textAlign:"right" }}>{fmtKRW(r.convAmt)}</td>
+
+        {/* ✅ 주 전환 데이터 표시 (엑셀 매칭) */}
+        <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>{num(main.convCnt)}</td>
+        <td style={{ padding:"8px", borderBottom:"1px solid #1f2937", textAlign:"right" }}>{fmtKRW(main.convAmt)}</td>
+      </tr>
+    );
+  })}
+
+  {!rows.length && !loading && (
+    <tr>
+      <td colSpan={7} style={{ padding:"14px", color:"#9ca3af", textAlign:"center" }}>
+        데이터가 없습니다.
+      </td>
+    </tr>
+  )}
+</tbody>
+
             </table>
           </div>
         </div>
