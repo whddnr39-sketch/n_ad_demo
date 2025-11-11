@@ -87,8 +87,8 @@ export async function POST(req) {
     const COL_YG_TYPE = "yg_type";
 
     const byMallProductId = {};
-    let totalmainCcnt = 0;
-    let totalmainConvAmt = 0;
+    let totalmainccnt = 0;
+    let totalmainconvAmt = 0;
 
     for (const r of rows) {
       // 전제조건: yg_type 에 naver_s 포함
@@ -108,25 +108,25 @@ export async function POST(req) {
       const amt = toNumber(r[COL_AMT]);
 
       if (!byMallProductId[mallProductId]) {
-        byMallProductId[mallProductId] = { mainCcnt: 0, mainConvAmt: 0 };
+        byMallProductId[mallProductId] = { mainccnt: 0, mainconvAmt: 0 };
       }
-      byMallProductId[mallProductId].mainCcnt += 1;       // 전환 수: 행 건수 count
-      byMallProductId[mallProductId].mainConvAmt += amt;  // 전환 매출: 합계
+      byMallProductId[mallProductId].mainccnt += 1;       // 전환 수: 행 건수 count
+      byMallProductId[mallProductId].mainconvAmt += amt;  // 전환 매출: 합계
 
-      totalmainCcnt += 1;
-      totalmainConvAmt += amt;
+      totalmainccnt += 1;
+      totalmainconvAmt += amt;
     }
 
     // 정수화
     for (const k of Object.keys(byMallProductId)) {
-      byMallProductId[k].mainCcnt = Math.round(byMallProductId[k].mainCcnt);
-      byMallProductId[k].mainConvAmt = Math.round(byMallProductId[k].mainConvAmt);
+      byMallProductId[k].mainccnt = Math.round(byMallProductId[k].mainccnt);
+      byMallProductId[k].mainconvAmt = Math.round(byMallProductId[k].mainconvAmt);
     }
 
     const body = {
       meta: { start, end, tz: "Asia/Seoul", sheet: wb.SheetNames[0] },
       byMallProductId,
-      total: { mainCcnt: Math.round(totalmainCcnt), mainConvAmt: Math.round(totalmainConvAmt) },
+      total: { mainccnt: Math.round(totalmainccnt), mainconvAmt: Math.round(totalmainconvAmt) },
     };
 
     return new Response(JSON.stringify(body), {
