@@ -20,7 +20,7 @@ function kstYesterdayDash() {
 export default function Page() {
   // 주 전환(xlsx) 업로드 상태
   const [convFile, setConvFile] = useState(null);
-  const [mainConvMap, setMainConvMap] = useState({}); // { mallProductId: { mainCcnt, mainConvAmt } }
+  const [mainConvMap, setMainConvMap] = useState({}); // { byMallProductId: { mainCcnt, mainConvAmt } }
   const [uploading, setUploading] = useState(false);
 
   // 날짜
@@ -160,11 +160,11 @@ export default function Page() {
     const j = await r.json();
     if (!r.ok || j.error) throw new Error(j.error || "업로드 실패");
 
-    // 응답을 { mallProductId: {mainCcnt, mainConvAmt} } 맵으로 정리
+    // 응답을 { byMallProductId: {mainCcnt, mainConvAmt} } 맵으로 정리
     const map = {};
     (j.perProduct || []).forEach(p => {
-      if (!p.mallProductId) return;
-      map[p.mallProductId] = {
+      if (!p.byMallProductId) return;
+      map[p.byMallProductId] = {
         mainCcnt: Number(p.mainCcnt || 0),
         mainConvAmt: Number(p.mainConvAmt || 0),
       };
@@ -390,7 +390,7 @@ export default function Page() {
               </thead>
               <tbody>
   {rows.map((r) => {
-    const matchKey = r.mallProductId || r.referenceKey || r.productId || "";
+    const matchKey = r.byMallProductId || r.referenceKey || r.productId || "";
     const main = mainConvMap?.[matchKey] ?? { mainCcnt: 0, mainconvAmt: 0 };
 
     return (
@@ -409,7 +409,7 @@ export default function Page() {
               ) : "-"}
             </td>
             <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>{r.productName || "-"}</td>
-            <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>{r.mallProductId || "-"}</td>
+            <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>{r.byMallProductId || "-"}</td>
             <td style={{ padding:"8px", borderBottom:"1px solid #1f2937", textAlign:"right" }}>
               {r.bidAmt ? num(r.bidAmt) : "-"}
             </td>
