@@ -22,6 +22,9 @@ export default function Page() {
   const [convFile, setConvFile] = useState(null);
   const [mainConvMap, setMainConvMap] = useState({}); // { mallProductId: { mainCcnt, mainConvAmt } }
   const [uploading, setUploading] = useState(false);
+  const [bidInputs, setBidInputs] = useState({});     // 소재별 입력한 입찰가
+  const [savingBidId, setSavingBidId] = useState(null);   // 입찰가 저장 중인 소재 id
+  const [togglingId, setTogglingId] = useState(null);     // ON/OFF 토글 중인 소재 id
 
   // 날짜
   const yday = useMemo(() => kstYesterdayDash(), []);
@@ -75,6 +78,17 @@ export default function Page() {
       }
     })();
   }, [selectedCampaign]);
+
+  // 소재 레벨에서 rows가 바뀔 때, 각 소재의 현재 입찰가를 입력창 기본값으로 세팅
+useEffect(() => {
+  if (level !== "ad") return;
+  const next = {};
+  for (const r of rows) {
+    next[r.id] = r.bidAmt ?? "";
+  }
+  setBidInputs(next);
+}, [rows, level]);
+
 
   const presets = [
     { label: "어제", range: () => ({ s: yday, e: yday }) },
@@ -138,6 +152,84 @@ export default function Page() {
       setLoading(false);
     }
   }
+
+  // 개별 소재 입찰가 변경
+async function updateBid(adId) {
+  const raw = bidInputs[adId];
+  const bidAmt = Number(raw);
+
+  if (!Number.isFinite(bidAmt) || bidAmt <= 0) {
+    alert("입찰가는 0보다 큰 숫자로 입력해 주세요.");
+    return;
+  }
+
+  try {
+    setSavingBidId(adId);
+    const res = await fetch(`/api/ads/${encodeURIComponent(adId)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        adId,
+        adAttr: {
+          bidAmt,
+          useGroupBidAmt: false,
+        },
+      }),
+    });
+
+    const j = await res.json();
+    if (!res.ok || j.error) {
+      throw new Error(j.error || `입찰가 변경 실패 (${res.status})`);
+    }
+
+    // 성공 시 rows 안의 해당 소재 bidAmt도 갱신
+    setRows((prev) =>
+      prev.map((r) =>
+        r.id === adId ? { ...r, bidAmt } : r
+      )
+    );
+  } catch (e) {
+    console.error(e);
+    alert(String(e?.message || e));
+  } finally {
+    setSavingBidId(null);
+  }
+}
+
+// 개별 소재 ON/OFF 토글 (userLock: false=ON, true=OFF)
+async function toggleAd(adId, currentUserLock) {
+  const nextLock = !currentUserLock; // true면 OFF, false면 ON
+
+  try {
+    setTogglingId(adId);
+    const res = await fetch(`/api/ads/${encodeURIComponent(adId)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        adId,
+        userLock: nextLock,
+      }),
+    });
+
+    const j = await res.json();
+    if (!res.ok || j.error) {
+      throw new Error(j.error || `ON/OFF 변경 실패 (${res.status})`);
+    }
+
+    // 성공 시 rows 안의 해당 소재 userLock 갱신
+    setRows((prev) =>
+      prev.map((r) =>
+        r.id === adId ? { ...r, userLock: nextLock } : r
+      )
+    );
+  } catch (e) {
+    console.error(e);
+    alert(String(e?.message || e));
+  } finally {
+    setTogglingId(null);
+  }
+}
+
 
   async function uploadConversions() {
   if (!convFile) {
@@ -365,6 +457,7 @@ export default function Page() {
                       <th style={{ padding: "10px 8px", borderBottom: "1px solid #1f2937" }}>상품명</th>
                       <th style={{ padding: "10px 8px", borderBottom: "1px solid #1f2937" }}>몰상품ID</th>
                       <th style={{ padding: "10px 8px", borderBottom: "1px solid #1f2937", textAlign: "right" }}>입찰가</th>
+                      <th style={{ padding:"10px 8px", borderBottom:"1px solid #1f2937" }}>상태</th>
                     </>
                   )}
                   <th style={{ padding: "10px 8px", borderBottom: "1px solid #1f2937" }}>이름</th>
@@ -383,8 +476,12 @@ export default function Page() {
               </thead>
               <tbody>
   {rows.map((r) => {
-    const matchKey = r.mallProductId || r.byMallProductId || r.referenceKey || r.productId || "";
+    const matchKey = r.mallProductId;
     const main = mainConvMap?.[matchKey] ?? { mainccnt: 0, mainconvAmt: 0 };
+    const bidValue = bidInputs[r.id] ?? "";
+    const isSavingBid = savingBidId === r.id;
+    const isToggling = togglingId === r.id;
+    const isOff = !!r.userLock; // true면 OF
 
     return (
       <tr key={r.id}>
@@ -403,8 +500,58 @@ export default function Page() {
             </td>
             <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>{r.productName || "-"}</td>
             <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>{r.mallProductId || "-"}</td>
-            <td style={{ padding:"8px", borderBottom:"1px solid #1f2937", textAlign:"right" }}>
-              {r.bidAmt ? num(r.bidAmt) : "-"}
+            <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                <input
+                  type="number"
+                  value={bidValue}
+                  onChange={(e) =>
+                    setBidInputs((prev) => ({ ...prev, [r.id]: e.target.value }))
+                  }
+                  style={{
+                    width: 70,
+                    padding: "4px 6px",
+                    background: "#020617",
+                    border: "1px solid #334155",
+                    borderRadius: 6,
+                    color: "#e5e7eb",
+                    fontSize: 12,
+                  }}
+                />
+                <button
+                  onClick={() => updateBid(r.id)}
+                  disabled={isSavingBid}
+                  style={{
+                    fontSize: 12,
+                    padding: "4px 8px",
+                    borderRadius: 6,
+                    border: "1px solid #334155",
+                    background: isSavingBid ? "#1e293b" : "#0f172a",
+                    cursor: isSavingBid ? "default" : "pointer",
+                  }}
+                >
+                  {isSavingBid ? "저장중…" : "변경"}
+                </button>
+              </div>
+            </td>
+
+            {/* ON/OFF 토글 */}
+            <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>
+              <button
+                onClick={() => toggleAd(r.id, r.userLock)}
+                disabled={isToggling}
+                style={{
+                  fontSize: 12,
+                  padding: "4px 10px",
+                  borderRadius: 999,
+                  border: "1px solid #4b5563",
+                  background: isOff ? "#111827" : "#16a34a22",
+                  color: isOff ? "#9ca3af" : "#bbf7d0",
+                  cursor: isToggling ? "default" : "pointer",
+                }}
+              >
+                {isToggling ? "변경중…" : isOff ? "OFF" : "ON"}
+              </button>
             </td>
           </>
         )}
