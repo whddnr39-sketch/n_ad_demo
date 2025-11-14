@@ -2,6 +2,7 @@
 export const runtime = "nodejs";
 
 import crypto from "crypto";
+import { NextResponse } from 'next/server'; // ⭐️ 추가: NextResponse 임포트
 
 const BASE = "https://api.searchad.naver.com";
 
@@ -40,13 +41,14 @@ export async function PUT(req, { params }) {
   try {
     const { apiKey, secretKey, customerId } = env();
 
-    // 1) URL path or query 둘 다에서 adId 시도 (안전장치)
-    const url = new URL(req.url);
-    const queryAdId = url.searchParams.get("adId");
-    const adId = params?.adId || queryAdId;
+    // 1) ⭐️ adId 추출 단순화: URL 경로 파라미터(params)에서만 가져옵니다. ⭐️
+    // adId가 nccAdId 역할을 합니다.
+    const adId = params.adId;
+    
     if (!adId) {
-      return Response.json(
-        { error: "adId(소재 id)가 필요합니다." },
+      // 프론트엔드에서 nccAdId를 'id'로 제대로 전달했는지 확인 필요
+      return NextResponse.json( // ⭐️ 수정: Response 대신 NextResponse 사용
+        { error: "adId(소재 id)가 필요합니다. (params.adId 누락)" },
         { status: 400 }
       );
     }
@@ -59,7 +61,7 @@ export async function PUT(req, { params }) {
     if (typeof body.userLock === "boolean") fields.push("userLock");
 
     if (!fields.length) {
-      return Response.json(
+      return NextResponse.json( // ⭐️ 수정: Response 대신 NextResponse 사용
         { error: "수정할 필드(adAttr 또는 userLock)이 없습니다." },
         { status: 400 }
       );
@@ -68,8 +70,9 @@ export async function PUT(req, { params }) {
     const path = `/ncc/ads/${encodeURIComponent(adId)}`;
     const qs = `?fields=${fields.join(",")}`;
 
+    // 3) ⭐️ payload에 nccAdId 값으로 adId를 사용합니다. ⭐️
     const payload = {
-      nccAdId: adId,
+      nccAdId: adId, // nccAdId 필드에 URL 경로에서 가져온 adId 값을 사용
       type: "SHOPPING_PRODUCT_AD",
       ...(body.adAttr ? { adAttr: body.adAttr } : {}),
       ...(typeof body.userLock === "boolean" ? { userLock: body.userLock } : {}),
@@ -91,7 +94,7 @@ export async function PUT(req, { params }) {
     }
 
     if (!res.ok) {
-      return Response.json(
+      return NextResponse.json( // ⭐️ 수정: Response 대신 NextResponse 사용
         {
           error: "Naver API 오류",
           status: res.status,
@@ -101,9 +104,9 @@ export async function PUT(req, { params }) {
       );
     }
 
-    return Response.json({ ok: true, adId, fields, naver: data });
+    return NextResponse.json({ ok: true, adId, fields, naver: data });
   } catch (e) {
-    return Response.json(
+    return NextResponse.json( // ⭐️ 수정: Response 대신 NextResponse 사용
       { error: String(e.message || e) },
       { status: 500 }
     );
