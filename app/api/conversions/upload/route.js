@@ -63,7 +63,7 @@ export async function POST(req) {
       return new Response(JSON.stringify({ error: "start/end(YYYY-MM-DD) 파라미터가 필요합니다." }), { status: 400 });
     }
 
-    // 파일 읽기
+    // 파일 읽기 맞아요
     const buf = Buffer.from(await file.arrayBuffer());
     const wb = XLSX.read(buf, { type: "buffer", cellDates: true });
     if (!wb.SheetNames?.length) {
