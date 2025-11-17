@@ -2,17 +2,18 @@
 export const runtime = "nodejs";
 
 import crypto from "crypto";
-import { NextResponse } from 'next/server'; // ⭐️ 추가: NextResponse 임포트
+import { NextResponse } from "next/server";
 
 const BASE = "https://api.searchad.naver.com";
 
-// --- 공통 유틸 (stats 쪽이랑 동일 패턴) ---
+// === 공통 유틸 ===
 function sign(secretKey, method, path) {
   const ts = String(Date.now());
   const sig = crypto
     .createHmac("sha256", secretKey)
     .update(`${ts}.${method}.${path}`)
     .digest("base64");
+
   return { ts, sig };
 }
 
@@ -31,48 +32,51 @@ function env() {
   const apiKey = process.env.API_KEY || process.env.NAVER_API_KEY;
   const secretKey = process.env.SECRET_KEY || process.env.NAVER_SECRET_KEY;
   const customerId = process.env.CUSTOMER_ID || process.env.NAVER_CUSTOMER_ID;
-  if (!apiKey || !secretKey || !customerId)
+
+  if (!apiKey || !secretKey || !customerId) {
     throw new Error("env(API_KEY/SECRET_KEY/CUSTOMER_ID) 필요");
+  }
   return { apiKey, secretKey, customerId };
 }
 
 // PUT /api/ads/[adId]
+// 여기서 adId = Naver nccAdId 로 사용한다.
 export async function PUT(req, { params }) {
   try {
     const { apiKey, secretKey, customerId } = env();
 
-    // 1) ⭐️ adId 추출 단순화: URL 경로 파라미터(params)에서만 가져옵니다. ⭐️
-    // adId가 nccAdId 역할을 합니다.
-    const adId = params.adId;
-    
+    // URL 경로에서 nccAdId를 받는다.
+    const adId = params?.adId;
     if (!adId) {
-      // 프론트엔드에서 nccAdId를 'id'로 제대로 전달했는지 확인 필요
-      return NextResponse.json( // ⭐️ 수정: Response 대신 NextResponse 사용
-        { error: "adId(소재 id)가 필요합니다. (params.adId 누락)" },
+      return NextResponse.json(
+        { error: "adId(= nccAdId)가 필요합니다. (params.adId 누락)" },
         { status: 400 }
       );
     }
 
-    // 2) body 파싱 (adAttr / userLock 둘 중 하나 또는 둘 다)
+    // body: 입찰가/상태 변경용 필드만 받는 형태
     const body = (await req.json().catch(() => null)) || {};
 
+    // adAttr (입찰가 등) / userLock(ON/OFF) 둘 중 하나 이상이 와야 한다.
     const fields = [];
     if (body.adAttr) fields.push("adAttr");
     if (typeof body.userLock === "boolean") fields.push("userLock");
 
     if (!fields.length) {
-      return NextResponse.json( // ⭐️ 수정: Response 대신 NextResponse 사용
+      return NextResponse.json(
         { error: "수정할 필드(adAttr 또는 userLock)이 없습니다." },
         { status: 400 }
       );
     }
 
+    // Naver SearchAd API 호출 준비
+    // 경로/path 기준으로 시그니처 생성 (쿼리는 시그니처에 포함 안 함)
     const path = `/ncc/ads/${encodeURIComponent(adId)}`;
     const qs = `?fields=${fields.join(",")}`;
 
-    // 3) ⭐️ payload에 nccAdId 값으로 adId를 사용합니다. ⭐️
+    // adId를 그대로 nccAdId로 사용
     const payload = {
-      nccAdId: adId, // nccAdId 필드에 URL 경로에서 가져온 adId 값을 사용
+      nccAdId: adId,
       type: "SHOPPING_PRODUCT_AD",
       ...(body.adAttr ? { adAttr: body.adAttr } : {}),
       ...(typeof body.userLock === "boolean" ? { userLock: body.userLock } : {}),
@@ -94,7 +98,7 @@ export async function PUT(req, { params }) {
     }
 
     if (!res.ok) {
-      return NextResponse.json( // ⭐️ 수정: Response 대신 NextResponse 사용
+      return NextResponse.json(
         {
           error: "Naver API 오류",
           status: res.status,
@@ -104,10 +108,15 @@ export async function PUT(req, { params }) {
       );
     }
 
-    return NextResponse.json({ ok: true, adId, fields, naver: data });
+    return NextResponse.json({
+      ok: true,
+      adId,          // = nccAdId
+      fields,        // 실제 변경 요청한 필드 목록
+      naver: data,   // Naver 응답
+    });
   } catch (e) {
-    return NextResponse.json( // ⭐️ 수정: Response 대신 NextResponse 사용
-      { error: String(e.message || e) },
+    return NextResponse.json(
+      { error: String(e?.message || e) },
       { status: 500 }
     );
   }
