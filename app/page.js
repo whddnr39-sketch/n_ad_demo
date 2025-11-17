@@ -505,36 +505,63 @@ async function toggleAd(adId, currentUserLock) {
               <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                 <input
                   type="number"
+                  min={50}
+                  max={2000}
+                  step={10}
                   value={bidValue}
-                  onChange={(e) =>
-                    setBidInputs((prev) => ({ ...prev, [r.nccAdId]: e.target.value }))
-                  }
-                  style={{
-                    width: 70,
-                    padding: "4px 6px",
-                    background: "#020617",
-                    border: "1px solid #334155",
-                    borderRadius: 6,
-                    color: "#e5e7eb",
-                    fontSize: 12,
-                  }}
-                />
-                <button
-                  onClick={() => updateBid(r.nccAdId)}
-                  disabled={isSavingBid}
-                  style={{
-                    fontSize: 12,
-                    padding: "4px 8px",
-                    borderRadius: 6,
-                    border: "1px solid #334155",
-                    background: isSavingBid ? "#1e293b" : "#0f172a",
-                    cursor: isSavingBid ? "default" : "pointer",
-                  }}
-                >
-                  {isSavingBid ? "저장중…" : "변경"}
-                </button>
-              </div>
-            </td>
+                        onChange={(e) => {
+        const raw = e.target.value;
+
+        // 입력을 지우는 것도 허용 (빈 문자열)
+        if (raw === "") {
+          setBidInputs((prev) => ({
+            ...prev,
+            [r.nccAdId]: "",
+          }));
+          return;
+        }
+
+        let v = Number(raw);
+        if (Number.isNaN(v)) return;
+
+        // 최소/최대 강제
+        if (v < 50) v = 50;
+        if (v > 2000) v = 2000;
+
+        // 10원 단위로 반올림
+        v = Math.round(v / 10) * 10;
+
+        setBidInputs((prev) => ({
+          ...prev,
+          [r.nccAdId]: v,
+        }));
+      }}
+      style={{
+        width: 70,
+        padding: "4px 6px",
+        background: "#020617",
+        border: "1px solid #334155",
+        borderRadius: 6,
+        color: "#e5e7eb",
+        fontSize: 12,
+      }}
+    />
+    <button
+      onClick={() => updateBid(r.nccAdId)}
+      disabled={isSavingBid}
+      style={{
+        fontSize: 12,
+        padding: "4px 8px",
+        borderRadius: 6,
+        border: "1px solid #334155",
+        background: isSavingBid ? "#1e293b" : "#0f172a",
+        cursor: isSavingBid ? "default" : "pointer",
+      }}
+    >
+      {isSavingBid ? "저장중…" : "변경"}
+    </button>
+  </div>
+</td>
 
             {/* ON/OFF 토글 */}
             <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>
