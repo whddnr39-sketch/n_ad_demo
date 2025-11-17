@@ -512,9 +512,16 @@ async function toggleAd(adId, currentUserLock) {
       onChange={(e) =>
         setBidInputs((prev) => ({
           ...prev,
-          [r.nccAdId]: e.target.value, // 문자열 그대로 저장
+          [r.nccAdId]: e.target.value, // 입력은 문자열 그대로 저장
         }))
       }
+      onBlur={(e) => {
+        const normalized = normalizeBid(e.target.value);
+        setBidInputs((prev) => ({
+          ...prev,
+          [r.nccAdId]: normalized ?? "", // 보정값 없으면 빈값 유지
+        }));
+      }}
       style={{
         width: 70,
         padding: "4px 6px",
