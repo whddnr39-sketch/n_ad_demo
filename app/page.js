@@ -456,7 +456,7 @@ async function toggleAd(adId, currentUserLock) {
                       <th style={{ padding: "10px 8px", borderBottom: "1px solid #1f2937" }}>썸네일</th>
                       <th style={{ padding: "10px 8px", borderBottom: "1px solid #1f2937" }}>상품명</th>
                       <th style={{ padding: "10px 8px", borderBottom: "1px solid #1f2937" }}>몰상품ID</th>
-                      <th style={{ padding: "10px 8px", borderBottom: "1px solid #1f2937" }}>광고ID</th>
+                      <th style={{ padding: "10px 8px", borderBottom: "1px solid #1f2937" }}>광고 ID</th>
                       <th style={{ padding: "10px 8px", borderBottom: "1px solid #1f2937", textAlign: "right" }}>입찰가</th>
                       <th style={{ padding:"10px 8px", borderBottom:"1px solid #1f2937" }}>상태</th>
                     </>
