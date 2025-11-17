@@ -509,29 +509,12 @@ async function toggleAd(adId, currentUserLock) {
                   max={2000}
                   step={10}
                   value={bidValue}
-                        onChange={(e) => {
-        const raw = e.target.value;
-
-        // 입력을 지우는 것도 허용 (빈 문자열)
-        if (raw === "") {
-          setBidInputs((prev) => ({
-            ...prev,
-            [r.nccAdId]: "",
-          }));
-          return;
-        }
-
-        let v = Number(raw);
-        if (Number.isNaN(v)) return;
-
-        // 10원 단위로 반올림
-        v = Math.round(v / 10) * 10;
-
+      onChange={(e) =>
         setBidInputs((prev) => ({
           ...prev,
-          [r.nccAdId]: v,
-        }));
-      }}
+          [r.nccAdId]: e.target.value, // 문자열 그대로 저장
+        }))
+      }
       style={{
         width: 70,
         padding: "4px 6px",
