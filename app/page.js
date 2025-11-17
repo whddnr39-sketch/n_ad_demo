@@ -460,7 +460,6 @@ async function toggleAd(adId, currentUserLock) {
                       <th style={{ padding:"10px 8px", borderBottom:"1px solid #1f2937" }}>상태</th>
                     </>
                   )}
-                  <th style={{ padding: "10px 8px", borderBottom: "1px solid #1f2937" }}>이름</th>
                   <th style={{ padding: "10px 8px", borderBottom: "1px solid #1f2937" }}>노출</th>
                   <th style={{ padding: "10px 8px", borderBottom: "1px solid #1f2937" }}>클릭</th>
                   <th style={{ padding: "10px 8px", borderBottom: "1px solid #1f2937" }}>CTR</th>
@@ -556,7 +555,6 @@ async function toggleAd(adId, currentUserLock) {
           </>
         )}
 
-        <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>{r.name}</td>
         <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>{num(r.impCnt)}</td>
         <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>{num(r.clkCnt)}</td>
         <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>{pct(r.ctr)}</td>
