@@ -509,29 +509,55 @@ async function toggleAd(adId, currentUserLock) {
                   max={2000}
                   step={10}
                   value={bidValue}
-      onChange={(e) =>
-        setBidInputs((prev) => ({
-          ...prev,
-          [r.nccAdId]: e.target.value, // 입력은 문자열 그대로 저장
-        }))
-      }
-      onBlur={(e) => {
-        const normalized = normalizeBid(e.target.value);
-        setBidInputs((prev) => ({
-          ...prev,
-          [r.nccAdId]: normalized ?? "", // 보정값 없으면 빈값 유지
-        }));
-      }}
-      style={{
-        width: 70,
-        padding: "4px 6px",
-        background: "#020617",
-        border: "1px solid #334155",
-        borderRadius: 6,
-        color: "#e5e7eb",
-        fontSize: 12,
-      }}
-    />
+      onChange={(e) => {
+    const raw = e.target.value;
+    // 그냥 사용자가 입력한 그대로 저장 (빈 문자열 포함)
+    setBidInputs((prev) => ({
+      ...prev,
+      [r.nccAdId]: raw,
+    }));
+  }}
+  onBlur={(e) => {
+    const raw = e.target.value;
+
+    // 비워둔 채로 나가면 그냥 빈 값 유지
+    if (raw === "" || raw == null) {
+      setBidInputs((prev) => ({
+        ...prev,
+        [r.nccAdId]: "",
+      }));
+      return;
+    }
+
+    let v = Number(raw);
+    if (Number.isNaN(v)) {
+      // 숫자가 아니면 원래 값 유지
+      return;
+    }
+
+    // 1) 범위 보정: 50 ~ 2000
+    if (v < 50) v = 50;
+    if (v > 2000) v = 2000;
+
+    // 2) 10원 단위 반올림
+    v = Math.round(v / 10) * 10;
+
+    // 최종 보정값을 상태에 반영 → 인풋에 110/120 이런 값으로 보이게 됨
+    setBidInputs((prev) => ({
+      ...prev,
+      [r.nccAdId]: v,
+    }));
+  }}
+  style={{
+    width: 70,
+    padding: "4px 6px",
+    background: "#020617",
+    border: "1px solid #334155",
+    borderRadius: 6,
+    color: "#e5e7eb",
+    fontSize: 12,
+  }}
+/>
     <button
       onClick={() => updateBid(r.nccAdId)}
       disabled={isSavingBid}
