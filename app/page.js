@@ -524,10 +524,6 @@ async function toggleAd(adId, currentUserLock) {
         let v = Number(raw);
         if (Number.isNaN(v)) return;
 
-        // 최소/최대 강제
-        if (v < 50) v = 50;
-        if (v > 2000) v = 2000;
-
         // 10원 단위로 반올림
         v = Math.round(v / 10) * 10;
 
