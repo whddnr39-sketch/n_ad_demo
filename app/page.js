@@ -505,25 +505,10 @@ async function toggleAd(adId, currentUserLock) {
               <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                 <input
                   type="number"
-                  min={50}
-                  max={2000}
-                  step={10}
                   value={bidValue}
-                  onChange={(e) => {
-                    let v = Number(e.target.value);
-
-                    // 최소/최대 강제
-                    if (v < 50) v = 50;
-                    if (v > 2000) v = 2000;
-
-                    // 10원 단위 강제 (ex: 157 → 160)
-                    v = Math.round(v / 10) * 10;
-
-                    setBidInputs((prev) => ({
-                      ...prev,
-                      [adId]: v,
-                    }));
-                  }}
+                  onChange={(e) =>
+                    setBidInputs((prev) => ({ ...prev, [r.nccAdId]: e.target.value }))
+                  }
                   style={{
                     width: 70,
                     padding: "4px 6px",
