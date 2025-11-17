@@ -84,7 +84,7 @@ useEffect(() => {
   if (level !== "ad") return;
   const next = {};
   for (const r of rows) {
-    next[r.id] = r.bidAmt ?? "";
+    next[r.nccAdId] = r.bidAmt ?? "";
   }
   setBidInputs(next);
 }, [rows, level]);
@@ -185,7 +185,7 @@ async function updateBid(adId) {
     // 성공 시 rows 안의 해당 소재 bidAmt도 갱신
     setRows((prev) =>
       prev.map((r) =>
-        r.id === adId ? { ...r, bidAmt } : r
+        r.nccAdId === adId ? { ...r, bidAmt } : r
       )
     );
   } catch (e) {
@@ -219,7 +219,7 @@ async function toggleAd(adId, currentUserLock) {
     // 성공 시 rows 안의 해당 소재 userLock 갱신
     setRows((prev) =>
       prev.map((r) =>
-        r.id === adId ? { ...r, userLock: nextLock } : r
+        r.nccAdId === adId ? { ...r, userLock: nextLock } : r
       )
     );
   } catch (e) {
@@ -456,7 +456,7 @@ async function toggleAd(adId, currentUserLock) {
                       <th style={{ padding: "10px 8px", borderBottom: "1px solid #1f2937" }}>썸네일</th>
                       <th style={{ padding: "10px 8px", borderBottom: "1px solid #1f2937" }}>상품명</th>
                       <th style={{ padding: "10px 8px", borderBottom: "1px solid #1f2937" }}>몰상품ID</th>
-                      <th style={{ padding: "10px 8px", borderBottom: "1px solid #1f2937" }}>광고 ID</th>
+                      <th style={{ padding: "10px 8px", borderBottom: "1px solid #1f2937" }}>광고ID</th>
                       <th style={{ padding: "10px 8px", borderBottom: "1px solid #1f2937", textAlign: "right" }}>입찰가</th>
                       <th style={{ padding:"10px 8px", borderBottom:"1px solid #1f2937" }}>상태</th>
                     </>
@@ -478,13 +478,13 @@ async function toggleAd(adId, currentUserLock) {
   {rows.map((r) => {
     const matchKey = r.mallProductId;
     const main = mainConvMap?.[matchKey] ?? { mainccnt: 0, mainconvAmt: 0 };
-    const bidValue = bidInputs[r.id] ?? "";
-    const isSavingBid = savingBidId === r.id;
-    const isToggling = togglingId === r.id;
+    const bidValue = bidInputs[r.nccAdId] ?? "";
+    const isSavingBid = savingBidId === r.nccAdId;
+    const isToggling = togglingId === r.nccAdId;
     const isOff = !!r.userLock; // true면 OF
 
     return (
-      <tr key={r.id}>
+      <tr key={r.nccAdId}>
         {level === "ad" && (
           <>
             <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>
@@ -507,7 +507,7 @@ async function toggleAd(adId, currentUserLock) {
                   type="number"
                   value={bidValue}
                   onChange={(e) =>
-                    setBidInputs((prev) => ({ ...prev, [r.id]: e.target.value }))
+                    setBidInputs((prev) => ({ ...prev, [r.nccAdId]: e.target.value }))
                   }
                   style={{
                     width: 70,
@@ -520,7 +520,7 @@ async function toggleAd(adId, currentUserLock) {
                   }}
                 />
                 <button
-                  onClick={() => updateBid(r.id)}
+                  onClick={() => updateBid(r.nccAdId)}
                   disabled={isSavingBid}
                   style={{
                     fontSize: 12,
@@ -539,7 +539,7 @@ async function toggleAd(adId, currentUserLock) {
             {/* ON/OFF 토글 */}
             <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>
               <button
-                onClick={() => toggleAd(r.id, r.userLock)}
+                onClick={() => toggleAd(r.nccAdId, r.userLock)}
                 disabled={isToggling}
                 style={{
                   fontSize: 12,
