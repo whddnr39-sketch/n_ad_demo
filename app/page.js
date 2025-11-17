@@ -165,11 +165,10 @@ async function updateBid(adId) {
 
   try {
     setSavingBidId(adId);
-    const res = await fetch(`/api/ads/${encodeURIComponent(nccAdId)}`, {
+    const res = await fetch(`/api/ads/${encodeURIComponent(adId)}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        adId,
         adAttr: {
           bidAmt,
           useGroupBidAmt: false,
@@ -202,11 +201,10 @@ async function toggleAd(adId, currentUserLock) {
 
   try {
     setTogglingId(adId);
-    const res = await fetch(`/api/ads/${encodeURIComponent(nccAdId)}`, {
+    const res = await fetch(`/api/ads/${encodeURIComponent(adId)}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        adId,
         userLock: nextLock,
       }),
     });
