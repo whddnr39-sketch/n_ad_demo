@@ -169,6 +169,7 @@ async function updateBid(adId) {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        adId,
         adAttr: {
           bidAmt,
           useGroupBidAmt: false,
@@ -205,6 +206,7 @@ async function toggleAd(adId, currentUserLock) {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        adId,
         userLock: nextLock,
       }),
     });

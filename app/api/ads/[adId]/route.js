@@ -41,21 +41,31 @@ function env() {
 
 // PUT /api/ads/[adId]
 // 여기서 adId = Naver nccAdId 로 사용한다.
-export async function PUT(req, { params }) {
+export async function PUT(req, ctx) {
   try {
     const { apiKey, secretKey, customerId } = env();
 
-    // URL 경로에서 nccAdId를 받는다.
-    const adId = params?.adId;
-    if (!adId) {
-      return NextResponse.json(
-        { error: "adId(= nccAdId)가 필요합니다. (params.adId 누락)" },
-        { status: 400 }
-      );
-    }
+    // ctx 에서 params 꺼내기
+    const params = ctx?.params || {};
 
     // body: 입찰가/상태 변경용 필드만 받는 형태
     const body = (await req.json().catch(() => null)) || {};
+
+    // 1) URL 경로에서 nccAdId를 받아보고,
+    // 2) 없으면 body.adId 에서 한번 더 찾아본다 (백업용)
+    const urlAdId = params?.adId;
+    const bodyAdId = body?.adId;
+    const adId = urlAdId ?? bodyAdId;
+
+    if (!adId || adId === "undefined") {
+      return NextResponse.json(
+        {
+          error: "adId(= nccAdId)가 필요합니다.",
+          debug: { urlAdId, bodyAdId },
+        },
+        { status: 400 }
+      );
+    }
 
     // adAttr (입찰가 등) / userLock(ON/OFF) 둘 중 하나 이상이 와야 한다.
     const fields = [];
@@ -70,11 +80,9 @@ export async function PUT(req, { params }) {
     }
 
     // Naver SearchAd API 호출 준비
-    // 경로/path 기준으로 시그니처 생성 (쿼리는 시그니처에 포함 안 함)
     const path = `/ncc/ads/${encodeURIComponent(adId)}`;
     const qs = `?fields=${fields.join(",")}`;
 
-    // adId를 그대로 nccAdId로 사용
     const payload = {
       nccAdId: adId,
       type: "SHOPPING_PRODUCT_AD",
@@ -110,9 +118,9 @@ export async function PUT(req, { params }) {
 
     return NextResponse.json({
       ok: true,
-      adId,          // = nccAdId
-      fields,        // 실제 변경 요청한 필드 목록
-      naver: data,   // Naver 응답
+      adId,        // = nccAdId
+      fields,      // 실제 변경 요청한 필드 목록
+      naver: data, // Naver 응답
     });
   } catch (e) {
     return NextResponse.json(
