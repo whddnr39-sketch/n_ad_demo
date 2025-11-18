@@ -1423,7 +1423,6 @@ function BulkControlTab() {
               fontSize: 12,
             }}
           >
-            <BulkSummaryItem label="소재 수" value="-" />
             <BulkSummaryItem label="총 비용" value="-" />
             <BulkSummaryItem label="총 전환수" value="-" />
             <BulkSummaryItem label="총 전환매출" value="-" />
@@ -1431,6 +1430,13 @@ function BulkControlTab() {
             <BulkSummaryItem label="총 주 전환수" value="-" />
             <BulkSummaryItem label="총 주 전환매출" value="-" />
             <BulkSummaryItem label="주 ROAS" value="-" />
+            <BulkSummaryItem label="일평균 비용" value="-" />
+            <BulkSummaryItem label="일평균 전환수" value="-" />
+            <BulkSummaryItem label="일평균 전환매출" value="-" />
+            <BulkSummaryItem label="일평균 ROAS" value="-" />
+            <BulkSummaryItem label="일평균 주 전환수" value="-" />
+            <BulkSummaryItem label="일평균 주 전환매출" value="-" />
+            <BulkSummaryItem label="일평균 주 ROAS" value="-" />
           </div>
         </div>
       </section>
