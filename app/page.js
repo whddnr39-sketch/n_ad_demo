@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 /* ---------- 유틸 ---------- */
 const fmtKRW = (n) => `₩${Math.round(Number(n) || 0).toLocaleString("ko-KR")}`;
-const pct = (v) => (Number.isFinite(v) ? `${(v * 1).toFixed(2)}%` : "-");
+const pct = (v) => (Number.isFinite(v) ? `${Math.round(v)}%` : "-");
 const num = (v) => (Number.isFinite(v) ? Number(v).toLocaleString("ko-KR") : "-");
 
 function kstYesterdayDash() {
