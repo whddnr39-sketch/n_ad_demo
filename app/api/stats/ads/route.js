@@ -99,7 +99,7 @@ async function listAllAdgroups(apiKey, secretKey, customerId) {
     page += 1;
 
     // 레이트리밋 완화
-    await sleep(80);
+    await sleep(1);
   }
 
   return all;
@@ -181,7 +181,7 @@ export async function GET(req) {
         }
 
         // 레이트리밋 완화
-        await sleep(80);
+        await sleep(1);
       }
     }
 
@@ -205,7 +205,7 @@ export async function GET(req) {
       if (!adId) continue;
 
       // 레이트리밋 완화
-      await sleep(80);
+      await sleep(1);
 
       try {
         const s = await fetchStatPerAd(
