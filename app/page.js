@@ -1233,8 +1233,111 @@ const summary = useMemo(() => {
 
 /* ---------- 2번 탭: 소재 일괄 컨트롤 (룰 & 시뮬) 스켈레톤 ---------- */
 function BulkControlTab() {
+  const today = kstYesterdayDash(); // 1번 탭과 동일한 유틸 재사용 (어제 날짜)
+  const [start, setStart] = useState(today);
+  const [end, setEnd] = useState(today);
+
+  // 조건 3개 스켈레톤용 상태
+  const [conditions, setConditions] = useState([
+    { enabled: true, field: "cost", op: ">=", value: "" },
+    { enabled: false, field: "mainRoas", op: ">=", value: "" },
+    { enabled: false, field: "roas", op: ">=", value: "" },
+  ]);
+
+  // 액션 타입: "bid_amount" | "bid_percent" | "onoff"
+  const [actionType, setActionType] = useState("bid_amount");
+
+  // 시뮬레이션 계수
+  const [kParam, setKParam] = useState(1.0);
+  const [tParam, setTParam] = useState(0.3);
+
+  const fields = [
+    { value: "cost", label: "광고비" },
+    { value: "avgRnk", label: "평균순위" },
+    { value: "mainConv", label: "주 전환수" },
+    { value: "mainConvAmt", label: "주 전환매출" },
+    { value: "mainRoas", label: "주 ROAS" },
+    { value: "conv", label: "전환수" },
+    { value: "convAmt", label: "전환매출" },
+    { value: "roas", label: "ROAS" },
+  ];
+
+  const ops = [
+    { value: ">=", label: "이상 (≥)" },
+    { value: "<=", label: "이하 (≤)" },
+    { value: "==", label: "같음 (=)" },
+  ];
+
+  const presetButtons = [
+    {
+      label: "어제",
+      apply: () => {
+        setStart(today);
+        setEnd(today);
+      },
+    },
+    {
+      label: "최근 7일",
+      apply: () => {
+        const d = new Date(`${today}T00:00:00Z`);
+        d.setUTCDate(d.getUTCDate() - 6);
+        const yyyy = d.getUTCFullYear();
+        const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+        const dd = String(d.getUTCDate()).padStart(2, "0");
+        setStart(`${yyyy}-${mm}-${dd}`);
+        setEnd(today);
+      },
+    },
+    {
+      label: "최근 30일",
+      apply: () => {
+        const d = new Date(`${today}T00:00:00Z`);
+        d.setUTCDate(d.getUTCDate() - 29);
+        const yyyy = d.getUTCFullYear();
+        const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+        const dd = String(d.getUTCDate()).padStart(2, "0");
+        setStart(`${yyyy}-${mm}-${dd}`);
+        setEnd(today);
+      },
+    },
+  ];
+
+  const wrapBox = {
+    border: "1px solid #1f2937",
+    borderRadius: 12,
+    padding: 16,
+    background: "#020617",
+    marginBottom: 12,
+  };
+
+  const label = {
+    fontSize: 12,
+    color: "#9ca3af",
+    marginBottom: 4,
+  };
+
+  const sel = {
+    background: "#020617",
+    color: "#e5e7eb",
+    border: "1px solid #27324a",
+    borderRadius: 8,
+    padding: "6px 8px",
+    fontSize: 12,
+  };
+
+  const btn = {
+    padding: "6px 10px",
+    borderRadius: 8,
+    border: "1px solid #334155",
+    background: "#0f172a",
+    color: "#e5e7eb",
+    fontSize: 12,
+    cursor: "pointer",
+  };
+
   return (
-    <div style={{ maxWidth: 1040 }}>
+    <div style={{ maxWidth: 1120 }}>
+      {/* 헤더 */}
       <header style={{ marginBottom: 16 }}>
         <h1 style={{ fontSize: 18, fontWeight: 600, marginBottom: 4 }}>
           소재 일괄 컨트롤 (룰 & 시뮬레이션)
@@ -1245,58 +1348,583 @@ function BulkControlTab() {
         </p>
       </header>
 
-      <section
-        style={{
-          border: "1px solid #1f2937",
-          borderRadius: 12,
-          padding: 16,
-          background: "#020617",
-          marginBottom: 8,
-        }}
-      >
-        <h2 style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>
-          1. 기간 선택 & 데이터 로드
-        </h2>
-        <p style={{ fontSize: 12, color: "#9ca3af" }}>
-          특정 기간(예: 최근 7일)을 선택하고, 해당 기간의 모든 소재 성과 데이터를
-          불러옵니다.
-        </p>
+      {/* STEP 1: 기간 선택 & 데이터 로드 */}
+      <section style={wrapBox}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+          <h2 style={{ fontSize: 14, fontWeight: 600 }}>1. 기간 선택 & 데이터 로드</h2>
+          <span style={{ fontSize: 11, color: "#6b7280" }}>* 현재는 레이아웃만 구현된 상태</span>
+        </div>
+
+        {/* 날짜 + 프리셋 + 조회 버튼 */}
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 12,
+            alignItems: "flex-end",
+            marginBottom: 12,
+          }}
+        >
+          <div>
+            <div style={label}>시작일</div>
+            <input
+              type="date"
+              value={start}
+              max={end}
+              onChange={(e) => setStart(e.target.value)}
+              style={sel}
+            />
+          </div>
+          <div>
+            <div style={label}>종료일</div>
+            <input
+              type="date"
+              value={end}
+              min={start}
+              onChange={(e) => setEnd(e.target.value)}
+              style={sel}
+            />
+          </div>
+
+          <div style={{ display: "flex", gap: 8 }}>
+            {presetButtons.map((p) => (
+              <button key={p.label} style={btn} onClick={p.apply}>
+                {p.label}
+              </button>
+            ))}
+          </div>
+
+          <button
+            style={{ ...btn, background: "#1d4ed8", borderColor: "#1d4ed8" }}
+            // TODO: 여기서 실제로 /api/stats/ads 호출 붙일 예정
+          >
+            소재 데이터 조회
+          </button>
+        </div>
+
+        {/* 데이터 요약 박스 (일단은 placeholder) */}
+        <div
+          style={{
+            marginTop: 8,
+            padding: 10,
+            borderRadius: 10,
+            border: "1px dashed #1f2937",
+            background: "#020617",
+          }}
+        >
+          <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 6 }}>
+            조회된 기간 기준 소재 성과 요약 (예: 전체 비용 / 전환수 / ROAS 등)
+          </div>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
+              gap: 8,
+              fontSize: 12,
+            }}
+          >
+            <BulkSummaryItem label="소재 수" value="-" />
+            <BulkSummaryItem label="총 비용" value="-" />
+            <BulkSummaryItem label="총 전환수" value="-" />
+            <BulkSummaryItem label="총 전환매출" value="-" />
+            <BulkSummaryItem label="ROAS" value="-" />
+            <BulkSummaryItem label="총 주 전환수" value="-" />
+            <BulkSummaryItem label="총 주 전환매출" value="-" />
+            <BulkSummaryItem label="주 ROAS" value="-" />
+          </div>
+        </div>
       </section>
 
-      <section
-        style={{
-          border: "1px solid #1f2937",
-          borderRadius: 12,
-          padding: 16,
-          background: "#020617",
-          marginBottom: 8,
-        }}
-      >
+      {/* STEP 2: 룰 설정 (조건 + 액션) */}
+      <section style={wrapBox}>
         <h2 style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>
           2. 룰 설정 (조건 + 액션)
         </h2>
-        <p style={{ fontSize: 12, color: "#9ca3af" }}>
-          광고비 / ROAS / 주전환ROAS 등 조건을 설정하고, 입찰가 조정 또는 ON/OFF 액션을
-          정의합니다.
+        <p style={{ fontSize: 12, color: "#9ca3af", marginBottom: 10 }}>
+          광고비, ROAS, 주 전환 등 지표를 기준으로 최대 3개의 AND 조건을 설정하고, 대상
+          소재에 대해 입찰가 또는 ON/OFF 액션을 정의합니다.
         </p>
+
+        {/* 조건 영역 */}
+        <div
+          style={{
+            marginBottom: 12,
+            padding: 10,
+            borderRadius: 10,
+            border: "1px solid #1f2937",
+            background: "#020617",
+          }}
+        >
+          <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 6 }}>
+            액션 대상 조건 (최대 3개 AND)
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {conditions.map((cond, idx) => (
+              <div
+                key={idx}
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  alignItems: "center",
+                  opacity: cond.enabled ? 1 : 0.4,
+                }}
+              >
+                <label
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
+                    fontSize: 11,
+                    width: 68,
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={cond.enabled}
+                    onChange={(e) => {
+                      const next = [...conditions];
+                      next[idx] = { ...next[idx], enabled: e.target.checked };
+                      setConditions(next);
+                    }}
+                  />
+                  조건 {idx + 1}
+                </label>
+
+                <select
+                  value={cond.field}
+                  onChange={(e) => {
+                    const next = [...conditions];
+                    next[idx] = { ...next[idx], field: e.target.value };
+                    setConditions(next);
+                  }}
+                  style={{ ...sel, minWidth: 140 }}
+                >
+                  {fields.map((f) => (
+                    <option key={f.value} value={f.value}>
+                      {f.label}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  value={cond.op}
+                  onChange={(e) => {
+                    const next = [...conditions];
+                    next[idx] = { ...next[idx], op: e.target.value };
+                    setConditions(next);
+                  }}
+                  style={{ ...sel, minWidth: 90 }}
+                >
+                  {ops.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+
+                <input
+                  type="number"
+                  value={cond.value}
+                  onChange={(e) => {
+                    const next = [...conditions];
+                    next[idx] = { ...next[idx], value: e.target.value };
+                    setConditions(next);
+                  }}
+                  placeholder="값"
+                  style={{
+                    ...sel,
+                    minWidth: 120,
+                    padding: "6px 8px",
+                  }}
+                />
+
+                <span style={{ fontSize: 11, color: "#6b7280" }}>
+                  {/* 나중에 field에 따라 단위(원, %, 건수 등) 표시해줘도 좋음 */}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* 액션 영역 */}
+        <div
+          style={{
+            padding: 10,
+            borderRadius: 10,
+            border: "1px solid #1f2937",
+            background: "#020617",
+          }}
+        >
+          <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 6 }}>
+            액션 내용 (입찰가 또는 ON/OFF 중 1개)
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 16,
+              alignItems: "flex-start",
+            }}
+          >
+            {/* 액션 타입 선택 */}
+            <div style={{ minWidth: 180 }}>
+              <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 4 }}>
+                액션 종류
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 4,
+                  fontSize: 12,
+                }}
+              >
+                <label style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <input
+                    type="radio"
+                    name="actionType"
+                    value="bid_amount"
+                    checked={actionType === "bid_amount"}
+                    onChange={(e) => setActionType(e.target.value)}
+                  />
+                  입찰가 금액 조정
+                </label>
+                <label style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <input
+                    type="radio"
+                    name="actionType"
+                    value="bid_percent"
+                    checked={actionType === "bid_percent"}
+                    onChange={(e) => setActionType(e.target.value)}
+                  />
+                  입찰가 % 조정
+                </label>
+                <label style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <input
+                    type="radio"
+                    name="actionType"
+                    value="onoff"
+                    checked={actionType === "onoff"}
+                    onChange={(e) => setActionType(e.target.value)}
+                  />
+                  소재 ON/OFF
+                </label>
+              </div>
+            </div>
+
+            {/* 액션 상세 설정 (스켈레톤) */}
+            <div style={{ flex: 1, minWidth: 260 }}>
+              {actionType === "bid_amount" && (
+                <div style={{ fontSize: 12 }}>
+                  <div style={{ ...label, marginBottom: 4 }}>입찰가 금액 조정</div>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <select style={{ ...sel, minWidth: 90 }}>
+                      <option value="decrease">감소</option>
+                      <option value="increase">증가</option>
+                    </select>
+                    <input
+                      type="number"
+                      placeholder="금액 (원)"
+                      style={{ ...sel, minWidth: 120 }}
+                    />
+                    <span style={{ fontSize: 11, color: "#9ca3af" }}>
+                      (최소·최대 입찰 한도는 추후 옵션으로 추가)
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {actionType === "bid_percent" && (
+                <div style={{ fontSize: 12 }}>
+                  <div style={{ ...label, marginBottom: 4 }}>입찰가 % 조정</div>
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 6,
+                    }}
+                  >
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <select style={{ ...sel, minWidth: 90 }}>
+                        <option value="decrease">감소</option>
+                        <option value="increase">증가</option>
+                      </select>
+                      <input
+                        type="number"
+                        placeholder="변경 비율 (%)"
+                        style={{ ...sel, minWidth: 120 }}
+                      />
+                    </div>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <input
+                        type="number"
+                        placeholder="최소 입찰가 (원)"
+                        style={{ ...sel, minWidth: 140 }}
+                      />
+                      <input
+                        type="number"
+                        placeholder="최대 입찰가 (원)"
+                        style={{ ...sel, minWidth: 140 }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {actionType === "onoff" && (
+                <div style={{ fontSize: 12 }}>
+                  <div style={{ ...label, marginBottom: 4 }}>소재 ON/OFF 전환</div>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <select style={{ ...sel, minWidth: 140 }}>
+                      <option value="off">지정된 소재 OFF</option>
+                      <option value="on">지정된 소재 ON</option>
+                    </select>
+                    <span style={{ fontSize: 11, color: "#9ca3af" }}>
+                      (ON의 경우 과거 데이터가 없어 시뮬은 제한적)
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       </section>
 
-      <section
-        style={{
-          border: "1px solid #1f2937",
-          borderRadius: 12,
-          padding: 16,
-          background: "#020617",
-        }}
-      >
+      {/* STEP 3: 프리뷰 & 시뮬레이션 */}
+      <section style={wrapBox}>
         <h2 style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>
           3. 프리뷰 & 시뮬레이션
         </h2>
-        <p style={{ fontSize: 12, color: "#9ca3af" }}>
-          선택된 룰이 적용될 대상 소재와, 적용 전/후 전체 성과(광고비, 전환, 매출, ROAS)를
-          미리 확인한 뒤 확정합니다.
+        <p style={{ fontSize: 12, color: "#9ca3af", marginBottom: 10 }}>
+          설정한 룰에 해당하는 소재 목록과, 적용 전/후 전체 성과 변화를 시뮬레이션한 뒤
+          최종 적용 여부를 결정합니다.
         </p>
+
+        {/* 시뮬레이션 계수 설정 */}
+        <div
+          style={{
+            marginBottom: 12,
+            padding: 10,
+            borderRadius: 10,
+            border: "1px solid #1f2937",
+            background: "#020617",
+          }}
+        >
+          <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 6 }}>
+            시뮬레이션 계수 (k, t를 조절하여 입찰 변화에 대한 성과 반응 민감도를 조정)
+          </div>
+
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 12 }}>
+            <div>
+              <div style={label}>성과 민감도 k</div>
+              <input
+                type="number"
+                step="0.1"
+                value={kParam}
+                onChange={(e) => setKParam(Number(e.target.value))}
+                style={{ ...sel, minWidth: 80 }}
+              />
+            </div>
+            <div>
+              <div style={label}>ROAS 기울기 t</div>
+              <input
+                type="number"
+                step="0.1"
+                value={tParam}
+                onChange={(e) => setTParam(Number(e.target.value))}
+                style={{ ...sel, minWidth: 80 }}
+              />
+            </div>
+            <button
+              style={{ ...btn }}
+              onClick={() => {
+                setKParam(1.0);
+                setTParam(0.3);
+              }}
+            >
+              기본값으로 초기화 (k=1.0, t=0.3)
+            </button>
+          </div>
+        </div>
+
+        {/* 대상 개요 + BEFORE/AFTER 테이블 (placeholder) */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "minmax(220px, 1.1fr) minmax(260px, 1.4fr)",
+            gap: 12,
+            alignItems: "flex-start",
+          }}
+        >
+          {/* 대상 개요 */}
+          <div
+            style={{
+              padding: 10,
+              borderRadius: 10,
+              border: "1px solid #1f2937",
+              background: "#020617",
+              fontSize: 12,
+            }}
+          >
+            <div style={{ ...label, marginBottom: 4 }}>액션 대상 개요</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <div>선택된 조건에 해당하는 소재 수: <strong>-</strong> 개</div>
+              <div>해당 소재들의 기간 광고비 합계: <strong>-</strong></div>
+              <div>해당 소재들의 기간 전환수/매출: <strong>-</strong></div>
+              <div>해당 소재들의 ROAS / 주 ROAS: <strong>-</strong></div>
+            </div>
+          </div>
+
+          {/* BEFORE / AFTER 요약 */}
+          <div
+            style={{
+              padding: 10,
+              borderRadius: 10,
+              border: "1px solid #1f2937",
+              background: "#020617",
+              fontSize: 12,
+            }}
+          >
+            <div style={{ ...label, marginBottom: 4 }}>전체 성과 BEFORE / AFTER (예상)</div>
+            <table
+              style={{
+                width: "100%",
+                borderCollapse: "collapse",
+                fontSize: 12,
+              }}
+            >
+              <thead>
+                <tr>
+                  <th
+                    style={{
+                      textAlign: "left",
+                      padding: "6px 4px",
+                      borderBottom: "1px solid #1f2937",
+                    }}
+                  >
+                    지표
+                  </th>
+                  <th
+                    style={{
+                      textAlign: "right",
+                      padding: "6px 4px",
+                      borderBottom: "1px solid #1f2937",
+                    }}
+                  >
+                    BEFORE
+                  </th>
+                  <th
+                    style={{
+                      textAlign: "right",
+                      padding: "6px 4px",
+                      borderBottom: "1px solid #1f2937",
+                    }}
+                  >
+                    AFTER(예상)
+                  </th>
+                  <th
+                    style={{
+                      textAlign: "right",
+                      padding: "6px 4px",
+                      borderBottom: "1px solid #1f2937",
+                    }}
+                  >
+                    변화량
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {["광고비", "전환수", "전환매출", "ROAS", "주 전환수", "주 전환매출", "주 ROAS"].map(
+                  (metric) => (
+                    <tr key={metric}>
+                      <td
+                        style={{
+                          padding: "4px",
+                          borderBottom: "1px solid #0b1120",
+                        }}
+                      >
+                        {metric}
+                      </td>
+                      <td
+                        style={{
+                          padding: "4px",
+                          textAlign: "right",
+                          borderBottom: "1px solid #0b1120",
+                        }}
+                      >
+                        -
+                      </td>
+                      <td
+                        style={{
+                          padding: "4px",
+                          textAlign: "right",
+                          borderBottom: "1px solid #0b1120",
+                        }}
+                      >
+                        -
+                      </td>
+                      <td
+                        style={{
+                          padding: "4px",
+                          textAlign: "right",
+                          borderBottom: "1px solid #0b1120",
+                          color: "#a5b4fc",
+                        }}
+                      >
+                        -
+                      </td>
+                    </tr>
+                  )
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* 적용 버튼 영역 */}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "flex-end",
+            gap: 8,
+            marginTop: 12,
+          }}
+        >
+          <button style={{ ...btn, background: "#111827" }}>
+            취소
+          </button>
+          <button
+            style={{
+              ...btn,
+              background: "#16a34a",
+              borderColor: "#16a34a",
+              fontWeight: 600,
+            }}
+            disabled
+            title="데이터/룰/시뮬레이션 로직 연결 후 활성화 예정"
+          >
+            적용하기 (추후 활성화)
+          </button>
+        </div>
       </section>
+    </div>
+  );
+}
+
+function BulkSummaryItem({ label, value }) {
+  return (
+    <div
+      style={{
+        padding: 8,
+        borderRadius: 8,
+        border: "1px solid #1f2937",
+        background: "#020617",
+      }}
+    >
+      <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 2 }}>{label}</div>
+      <div style={{ fontSize: 13, fontWeight: 600 }}>{value}</div>
     </div>
   );
 }
