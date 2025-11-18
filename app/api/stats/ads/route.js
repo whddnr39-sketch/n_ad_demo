@@ -95,7 +95,7 @@ async function listAds(creds, { adgroupId, campaignId }) {
     for (const g of part) {
       const r = await listAdsOfGroup(creds, g.id);
       chunks.push(r);
-      await sleep(120); // 100~150ms 권장
+      await sleep(50); // 100~150ms 권장
     }
     for (const c of chunks) all.push(...c);
   }
@@ -193,7 +193,7 @@ export async function GET(req) {
           productName: a.productName,
         });
 
-        await sleep(120); // 핵심: 요청 간 딜레이 추가
+        await sleep(50); // 핵심: 요청 간 딜레이 추가
       }
 
       for (const r of stats) {
