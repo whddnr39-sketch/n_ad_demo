@@ -1233,11 +1233,19 @@ const summary = useMemo(() => {
 
 /* ---------- 2번 탭: 소재 일괄 컨트롤 (룰 & 시뮬) 스켈레톤 ---------- */
 function BulkControlTab() {
-  const today = kstYesterdayDash(); // 1번 탭과 동일한 유틸 재사용 (어제 날짜)
+  const today = kstYesterdayDash(); // 1번 탭과 동일하게 어제를 기본값으로 사용
   const [start, setStart] = useState(today);
   const [end, setEnd] = useState(today);
 
-  // 조건 3개 스켈레톤용 상태
+  // STEP1: 조회된 소재 데이터
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState("");
+
+  // 추후 주 전환 xlsx를 연결할 수도 있으니 구조만 잡아둠
+  const [mainConvMap] = useState({}); // { mallProductId: { mainccnt, mainconvAmt } }
+
+  // STEP2: 조건 스켈레톤 상태
   const [conditions, setConditions] = useState([
     { enabled: true, field: "cost", op: ">=", value: "" },
     { enabled: false, field: "mainRoas", op: ">=", value: "" },
@@ -1335,6 +1343,101 @@ function BulkControlTab() {
     cursor: "pointer",
   };
 
+  // 🔢 기간 일수 계산 (양 끝 포함)
+  const dayCount = useMemo(() => {
+    if (!start || !end) return 0;
+    try {
+      const s = new Date(`${start}T00:00:00`);
+      const e = new Date(`${end}T00:00:00`);
+      const diffMs = e.getTime() - s.getTime();
+      if (diffMs < 0) return 0;
+      return diffMs / (1000 * 60 * 60 * 24) + 1;
+    } catch {
+      return 0;
+    }
+  }, [start, end]);
+
+  // 📊 STEP1 요약: 합계 + 일평균
+  const summary = useMemo(() => {
+    let totalCost = 0;
+    let totalConv = 0;
+    let totalConvAmt = 0;
+    let totalMainConv = 0;
+    let totalMainConvAmt = 0;
+
+    for (const r of rows) {
+      totalCost += Number(r.salesAmt) || 0;
+      totalConv += Number(r.ccnt) || 0;
+      totalConvAmt += Number(r.convAmt) || 0;
+
+      const key = r.mallProductId;
+      const main = (mainConvMap && mainConvMap[key]) || {};
+      totalMainConv += Number(main.mainccnt) || 0;
+      totalMainConvAmt += Number(main.mainconvAmt) || 0;
+    }
+
+    const roas = totalCost > 0 ? (totalConvAmt / totalCost) * 100 : 0;
+    const mainRoas = totalCost > 0 ? (totalMainConvAmt / totalCost) * 100 : 0;
+
+    const days = dayCount > 0 ? dayCount : 1;
+
+    const dailyCost = totalCost / days;
+    const dailyConv = totalConv / days;
+    const dailyConvAmt = totalConvAmt / days;
+    const dailyMainConv = totalMainConv / days;
+    const dailyMainConvAmt = totalMainConvAmt / days;
+
+    const dailyRoas = dailyCost > 0 ? (dailyConvAmt / dailyCost) * 100 : 0;
+    const dailyMainRoas =
+      dailyCost > 0 ? (dailyMainConvAmt / dailyCost) * 100 : 0;
+
+    return {
+      total: {
+        cost: totalCost,
+        conv: totalConv,
+        convAmt: totalConvAmt,
+        roas,
+        mainConv: totalMainConv,
+        mainConvAmt: totalMainConvAmt,
+        mainRoas,
+      },
+      daily: {
+        cost: dailyCost,
+        conv: dailyConv,
+        convAmt: dailyConvAmt,
+        roas: dailyRoas,
+        mainConv: dailyMainConv,
+        mainConvAmt: dailyMainConvAmt,
+        mainRoas: dailyMainRoas,
+      },
+    };
+  }, [rows, mainConvMap, dayCount]);
+
+  // 🚀 STEP1: 소재 데이터 조회
+  async function loadBulk() {
+    try {
+      setErr("");
+      setLoading(true);
+
+      const res = await fetch(
+        `/api/stats/ads?start=${start}&end=${end}`
+      );
+      const j = await res.json();
+
+      if (!res.ok || j.error) {
+        throw new Error(j.error || `조회 실패 (${res.status})`);
+      }
+
+      setRows(j.rows || []);
+    } catch (e) {
+      console.error(e);
+      setRows([]);
+      setErr(String(e.message || e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <div style={{ maxWidth: 1120 }}>
       {/* 헤더 */}
@@ -1352,7 +1455,11 @@ function BulkControlTab() {
       <section style={wrapBox}>
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
           <h2 style={{ fontSize: 14, fontWeight: 600 }}>1. 기간 선택 & 데이터 로드</h2>
-          <span style={{ fontSize: 11, color: "#6b7280" }}>* 현재는 레이아웃만 구현된 상태</span>
+          <span style={{ fontSize: 11, color: "#6b7280" }}>
+            {rows.length
+              ? `조회된 소재 수: ${rows.length.toLocaleString("ko-KR")}개`
+              : "* 먼저 기간을 선택하고 '소재 데이터 조회'를 눌러주세요"}
+          </span>
         </div>
 
         {/* 날짜 + 프리셋 + 조회 버튼 */}
@@ -1395,14 +1502,26 @@ function BulkControlTab() {
           </div>
 
           <button
-            style={{ ...btn, background: "#1d4ed8", borderColor: "#1d4ed8" }}
-            // TODO: 여기서 실제로 /api/stats/ads 호출 붙일 예정
+            style={{
+              ...btn,
+              background: "#1d4ed8",
+              borderColor: "#1d4ed8",
+              fontWeight: 600,
+            }}
+            onClick={loadBulk}
+            disabled={loading}
           >
-            소재 데이터 조회
+            {loading ? "조회 중…" : "소재 데이터 조회"}
           </button>
         </div>
 
-        {/* 데이터 요약 박스 (일단은 placeholder) */}
+        {err && (
+          <div style={{ fontSize: 12, color: "#fca5a5", marginBottom: 8 }}>
+            * {err}
+          </div>
+        )}
+
+        {/* 데이터 요약 박스 */}
         <div
           style={{
             marginTop: 8,
@@ -1413,33 +1532,56 @@ function BulkControlTab() {
           }}
         >
           <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 6 }}>
-            조회된 기간 기준 소재 성과 요약 (예: 전체 비용 / 전환수 / ROAS 등)
+            조회된 기간 기준 소재 성과 요약 (합계 / 일평균)
           </div>
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
+              gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
               gap: 8,
               fontSize: 12,
             }}
           >
-            <BulkSummaryItem label="총 비용" value="-" />
-            <BulkSummaryItem label="총 전환수" value="-" />
-            <BulkSummaryItem label="총 전환매출" value="-" />
-            <BulkSummaryItem label="ROAS" value="-" />
-            <BulkSummaryItem label="총 주 전환수" value="-" />
-            <BulkSummaryItem label="총 주 전환매출" value="-" />
-            <BulkSummaryItem label="주 ROAS" value="-" />
-            <BulkSummaryItem label="일평균 비용" value="-" />
-            <BulkSummaryItem label="일평균 전환수" value="-" />
-            <BulkSummaryItem label="일평균 전환매출" value="-" />
-            <BulkSummaryItem label="일평균 ROAS" value="-" />
-            <BulkSummaryItem label="일평균 주 전환수" value="-" />
-            <BulkSummaryItem label="일평균 주 전환매출" value="-" />
-            <BulkSummaryItem label="일평균 주 ROAS" value="-" />
+            {/* 네가 말한 순서대로 값 바인딩 */}
+            <BulkSummaryItem label="총 비용" value={fmtKRW(summary.total.cost)} />
+            <BulkSummaryItem label="총 전환수" value={num(summary.total.conv)} />
+            <BulkSummaryItem label="총 전환매출" value={fmtKRW(summary.total.convAmt)} />
+            <BulkSummaryItem label="ROAS" value={pct(summary.total.roas)} />
+            <BulkSummaryItem
+              label="총 주 전환수"
+              value={num(summary.total.mainConv)}
+            />
+            <BulkSummaryItem
+              label="총 주 전환매출"
+              value={fmtKRW(summary.total.mainConvAmt)}
+            />
+            <BulkSummaryItem
+              label="주 ROAS"
+              value={pct(summary.total.mainRoas)}
+            />
+            <BulkSummaryItem label="일평균 비용" value={fmtKRW(summary.daily.cost)} />
+            <BulkSummaryItem label="일평균 전환수" value={num(summary.daily.conv)} />
+            <BulkSummaryItem
+              label="일평균 전환매출"
+              value={fmtKRW(summary.daily.convAmt)}
+            />
+            <BulkSummaryItem label="일평균 ROAS" value={pct(summary.daily.roas)} />
+            <BulkSummaryItem
+              label="일평균 주 전환수"
+              value={num(summary.daily.mainConv)}
+            />
+            <BulkSummaryItem
+              label="일평균 주 전환매출"
+              value={fmtKRW(summary.daily.mainConvAmt)}
+            />
+            <BulkSummaryItem
+              label="일평균 주 ROAS"
+              value={pct(summary.daily.mainRoas)}
+            />
           </div>
         </div>
       </section>
+
 
       {/* STEP 2: 룰 설정 (조건 + 액션) */}
       <section style={wrapBox}>
@@ -1918,6 +2060,7 @@ function BulkControlTab() {
     </div>
   );
 }
+
 
 function BulkSummaryItem({ label, value }) {
   return (
