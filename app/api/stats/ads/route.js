@@ -1,3 +1,6 @@
+const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+
+
 export const runtime = "nodejs";
 import crypto from "crypto";
 
@@ -88,7 +91,12 @@ async function listAds(creds, { adgroupId, campaignId }) {
   let all = [];
   for (let i = 0; i < groups.length; i += CONC) {
     const part = groups.slice(i, i + CONC);
-    const chunks = await Promise.all(part.map(g => listAdsOfGroup(creds, g.id)));
+    let chunks = [];
+    for (const g of part) {
+      const r = await listAdsOfGroup(creds, g.id);
+      chunks.push(r);
+      await sleep(120); // 100~150ms 권장
+    }
     for (const c of chunks) all.push(...c);
   }
   return all;
@@ -171,19 +179,23 @@ export async function GET(req) {
     let total = 0;
     for (let i = 0; i < ads.length; i += CONC) {
       const part = ads.slice(i, i + CONC);
-      const stats = await Promise.all(
-        part.map(async a => ({
+      let stats = [];
+      for (const a of part) {
+        const st = await fetchStatPerAd(creds, a.id, start, end);
+        stats.push({
           id: a.id,
           name: a.name,
-          ...(await fetchStatPerAd(creds, a.id, start, end)),
-          // 🔹 신규 필드들 그대로 전달
+          ...st,
           nccAdId: a.id,
           bidAmt: a.bidAmt,
           mallProductId: a.mallProductId,
           imageUrl: a.imageUrl,
           productName: a.productName,
-        }))
-      );
+        });
+
+        await sleep(120); // 핵심: 요청 간 딜레이 추가
+      }
+
       for (const r of stats) {
         rows.push(r);
         total += r.salesAmt;
