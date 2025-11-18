@@ -797,6 +797,7 @@ const summary = useMemo(() => {
                     </th>
                   </>
                 )}
+                <th style={{ padding:"10px 8px", borderBottom:"1px solid #1f2937" }}>이름</th>
                 <th
                   style={{
                     padding: "10px 8px",
@@ -1109,7 +1110,7 @@ const summary = useMemo(() => {
                         </td>
                       </>
                     )}
-
+                    <td style={{ padding:"8px", borderBottom:"1px solid #1f2937" }}>{r.name}</td>
                     <td
                       style={{
                         padding: "8px",
