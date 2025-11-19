@@ -1233,6 +1233,7 @@ const summary = useMemo(() => {
 }
 
 /* ---------- 2번 탭: 소재 일괄 컨트롤 (룰 & 시뮬) 스켈레톤 ---------- */
+/* ---------- 2번 탭: 소재 일괄 컨트롤 (룰 & 시뮬) ---------- */
 function BulkControlTab() {
   const today = kstYesterdayDash(); // 1번 탭과 동일하게 어제를 기본값으로 사용
   const [start, setStart] = useState(today);
@@ -1242,6 +1243,7 @@ function BulkControlTab() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
+  const [loadingChunkCount, setLoadingChunkCount] = useState(0);
 
   // 추후 주 전환 xlsx를 연결할 수도 있으니 구조만 잡아둠
   const [mainConvMap] = useState({}); // { mallProductId: { mainccnt, mainconvAmt } }
@@ -1378,7 +1380,8 @@ function BulkControlTab() {
     }
 
     const roas = totalCost > 0 ? (totalConvAmt / totalCost) * 100 : 0;
-    const mainRoas = totalCost > 0 ? (totalMainConvAmt / totalCost) * 100 : 0;
+    const mainRoas =
+      totalCost > 0 ? (totalMainConvAmt / totalCost) * 100 : 0;
 
     const days = dayCount > 0 ? dayCount : 1;
 
@@ -1388,7 +1391,8 @@ function BulkControlTab() {
     const dailyMainConv = totalMainConv / days;
     const dailyMainConvAmt = totalMainConvAmt / days;
 
-    const dailyRoas = dailyCost > 0 ? (dailyConvAmt / dailyCost) * 100 : 0;
+    const dailyRoas =
+      dailyCost > 0 ? (dailyConvAmt / dailyCost) * 100 : 0;
     const dailyMainRoas =
       dailyCost > 0 ? (dailyMainConvAmt / dailyCost) * 100 : 0;
 
@@ -1414,22 +1418,48 @@ function BulkControlTab() {
     };
   }, [rows, mainConvMap, dayCount]);
 
-  // 🚀 STEP1: 소재 데이터 조회
+  // 🚀 STEP1: 소재 데이터 조회 (400개씩 끊어서 전체 로드)
   async function loadBulk() {
     try {
       setErr("");
       setLoading(true);
+      setRows([]);
+      setLoadingChunkCount(0);
 
-      const res = await fetch(
-        `/api/stats/ads?start=${start}&end=${end}`
-      );
-      const j = await res.json();
+      const LIMIT = 400;
+      let allRows = [];
+      let cursor = null;
+      let chunk = 0;
 
-      if (!res.ok || j.error) {
-        throw new Error(j.error || `조회 실패 (${res.status})`);
-      }
+      do {
+        const params = new URLSearchParams({
+          start,
+          end,
+          limit: String(LIMIT),
+        });
+        if (cursor) params.set("cursor", cursor);
 
-      setRows(j.rows || []);
+        const res = await fetch(
+          `/api/stats/ads?${params.toString()}`
+        );
+        const j = await res.json();
+
+        if (!res.ok || j.error) {
+          throw new Error(
+            j.error || `조회 실패 (${res.status})`
+          );
+        }
+
+        const part = j.rows || [];
+        allRows = allRows.concat(part);
+
+        // 🔥 누적된 전체 rows를 state에 반영 (중간에도 테이블/요약 실시간 갱신)
+        setRows(allRows);
+        chunk += 1;
+        setLoadingChunkCount(chunk);
+
+        cursor = j.nextCursor || null;
+      } while (cursor);
     } catch (e) {
       console.error(e);
       setRows([]);
@@ -1443,22 +1473,42 @@ function BulkControlTab() {
     <div style={{ maxWidth: 1120 }}>
       {/* 헤더 */}
       <header style={{ marginBottom: 16 }}>
-        <h1 style={{ fontSize: 18, fontWeight: 600, marginBottom: 4 }}>
+        <h1
+          style={{
+            fontSize: 18,
+            fontWeight: 600,
+            marginBottom: 4,
+          }}
+        >
           소재 일괄 컨트롤 (룰 & 시뮬레이션)
         </h1>
         <p style={{ fontSize: 12, color: "#9ca3af" }}>
-          기간별 소재 성과를 불러와 조건을 설정하고, 대량 입찰/ON/OFF를 적용하기 전에
-          시뮬레이션합니다.
+          기간별 소재 성과를 불러와 조건을 설정하고, 대량 입찰/ON/OFF를
+          적용하기 전에 시뮬레이션합니다.
         </p>
       </header>
 
       {/* STEP 1: 기간 선택 & 데이터 로드 */}
       <section style={wrapBox}>
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-          <h2 style={{ fontSize: 14, fontWeight: 600 }}>1. 기간 선택 & 데이터 로드</h2>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            marginBottom: 8,
+          }}
+        >
+          <h2 style={{ fontSize: 14, fontWeight: 600 }}>
+            1. 기간 선택 & 데이터 로드
+          </h2>
           <span style={{ fontSize: 11, color: "#6b7280" }}>
             {rows.length
-              ? `조회된 소재 수: ${rows.length.toLocaleString("ko-KR")}개`
+              ? `조회된 소재 수: ${rows.length.toLocaleString(
+                  "ko-KR"
+                )}개${
+                  loading
+                    ? ` (로딩 중… 청크 ${loadingChunkCount}개 완료)`
+                    : ""
+                }`
               : "* 먼저 기간을 선택하고 '소재 데이터 조회'를 눌러주세요"}
           </span>
         </div>
@@ -1517,7 +1567,13 @@ function BulkControlTab() {
         </div>
 
         {err && (
-          <div style={{ fontSize: 12, color: "#fca5a5", marginBottom: 8 }}>
+          <div
+            style={{
+              fontSize: 12,
+              color: "#fca5a5",
+              marginBottom: 8,
+            }}
+          >
             * {err}
           </div>
         )}
@@ -1532,22 +1588,40 @@ function BulkControlTab() {
             background: "#020617",
           }}
         >
-          <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 6 }}>
+          <div
+            style={{
+              fontSize: 12,
+              color: "#9ca3af",
+              marginBottom: 6,
+            }}
+          >
             조회된 기간 기준 소재 성과 요약 (합계 / 일평균)
           </div>
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+              gridTemplateColumns:
+                "repeat(auto-fit, minmax(150px, 1fr))",
               gap: 8,
               fontSize: 12,
             }}
           >
-            {/* 네가 말한 순서대로 값 바인딩 */}
-            <BulkSummaryItem label="총 비용" value={fmtKRW(summary.total.cost)} />
-            <BulkSummaryItem label="총 전환수" value={num(summary.total.conv)} />
-            <BulkSummaryItem label="총 전환매출" value={fmtKRW(summary.total.convAmt)} />
-            <BulkSummaryItem label="ROAS" value={pct(summary.total.roas)} />
+            <BulkSummaryItem
+              label="총 비용"
+              value={fmtKRW(summary.total.cost)}
+            />
+            <BulkSummaryItem
+              label="총 전환수"
+              value={num(summary.total.conv)}
+            />
+            <BulkSummaryItem
+              label="총 전환매출"
+              value={fmtKRW(summary.total.convAmt)}
+            />
+            <BulkSummaryItem
+              label="ROAS"
+              value={pct(summary.total.roas)}
+            />
             <BulkSummaryItem
               label="총 주 전환수"
               value={num(summary.total.mainConv)}
@@ -1560,13 +1634,22 @@ function BulkControlTab() {
               label="주 ROAS"
               value={pct(summary.total.mainRoas)}
             />
-            <BulkSummaryItem label="일평균 비용" value={fmtKRW(summary.daily.cost)} />
-            <BulkSummaryItem label="일평균 전환수" value={num(summary.daily.conv)} />
+            <BulkSummaryItem
+              label="일평균 비용"
+              value={fmtKRW(summary.daily.cost)}
+            />
+            <BulkSummaryItem
+              label="일평균 전환수"
+              value={num(summary.daily.conv)}
+            />
             <BulkSummaryItem
               label="일평균 전환매출"
               value={fmtKRW(summary.daily.convAmt)}
             />
-            <BulkSummaryItem label="일평균 ROAS" value={pct(summary.daily.roas)} />
+            <BulkSummaryItem
+              label="일평균 ROAS"
+              value={pct(summary.daily.roas)}
+            />
             <BulkSummaryItem
               label="일평균 주 전환수"
               value={num(summary.daily.mainConv)}
@@ -1581,6 +1664,355 @@ function BulkControlTab() {
             />
           </div>
         </div>
+
+        {/* 🔥 STEP1 하단: 소재 상세 테이블 (1번 탭 테이블 형태 재사용, STEP1 박스 내 스크롤) */}
+        {rows.length > 0 && (
+          <div style={{ marginTop: 12 }}>
+            <div
+              style={{
+                fontSize: 12,
+                color: "#9ca3af",
+                marginBottom: 4,
+              }}
+            >
+              조회된 전체 소재 상세 (스크롤해서 확인)
+            </div>
+            <div
+              style={{
+                maxHeight: 420, // STEP1 박스 내부 스크롤
+                overflowY: "auto",
+                borderRadius: 10,
+                border: "1px solid #1f2937",
+              }}
+            >
+              <table
+                style={{
+                  width: "100%",
+                  borderCollapse: "collapse",
+                  fontSize: 12,
+                }}
+              >
+                <thead>
+                  <tr
+                    style={{
+                      textAlign: "left",
+                      background: "#0b1020",
+                    }}
+                  >
+                    <th
+                      style={{
+                        padding: "10px 8px",
+                        borderBottom: "1px solid #1f2937",
+                      }}
+                    >
+                      썸네일
+                    </th>
+                    <th
+                      style={{
+                        padding: "10px 8px",
+                        borderBottom: "1px solid #1f2937",
+                      }}
+                    >
+                      상품명
+                    </th>
+                    <th
+                      style={{
+                        padding: "10px 8px",
+                        borderBottom: "1px solid #1f2937",
+                      }}
+                    >
+                      몰상품ID
+                    </th>
+                    <th
+                      style={{
+                        padding: "10px 8px",
+                        borderBottom: "1px solid #1f2937",
+                      }}
+                    >
+                      광고ID
+                    </th>
+                    <th
+                      style={{
+                        padding: "10px 8px",
+                        borderBottom: "1px solid #1f2937",
+                      }}
+                    >
+                      이름
+                    </th>
+                    <th
+                      style={{
+                        padding: "10px 8px",
+                        borderBottom: "1px solid #1f2937",
+                      }}
+                    >
+                      노출
+                    </th>
+                    <th
+                      style={{
+                        padding: "10px 8px",
+                        borderBottom: "1px solid #1f2937",
+                      }}
+                    >
+                      클릭
+                    </th>
+                    <th
+                      style={{
+                        padding: "10px 8px",
+                        borderBottom: "1px solid #1f2937",
+                      }}
+                    >
+                      CTR
+                    </th>
+                    <th
+                      style={{
+                        padding: "10px 8px",
+                        borderBottom: "1px solid #1f2937",
+                      }}
+                    >
+                      CPC
+                    </th>
+                    <th
+                      style={{
+                        padding: "10px 8px",
+                        borderBottom: "1px solid #1f2937",
+                      }}
+                    >
+                      평균순위
+                    </th>
+                    <th
+                      style={{
+                        padding: "10px 8px",
+                        borderBottom: "1px solid #1f2937",
+                        textAlign: "right",
+                      }}
+                    >
+                      비용
+                    </th>
+                    <th
+                      style={{
+                        padding: "10px 8px",
+                        borderBottom: "1px solid #1f2937",
+                        textAlign: "right",
+                      }}
+                    >
+                      전환수
+                    </th>
+                    <th
+                      style={{
+                        padding: "10px 8px",
+                        borderBottom: "1px solid #1f2937",
+                        textAlign: "right",
+                      }}
+                    >
+                      전환매출
+                    </th>
+                    <th
+                      style={{
+                        padding: "10px 8px",
+                        borderBottom: "1px solid #1f2937",
+                        textAlign: "right",
+                      }}
+                    >
+                      주 전환수
+                    </th>
+                    <th
+                      style={{
+                        padding: "10px 8px",
+                        borderBottom: "1px solid #1f2937",
+                        textAlign: "right",
+                      }}
+                    >
+                      주 전환매출
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r) => {
+                    const matchKey = r.mallProductId;
+                    const main =
+                      mainConvMap?.[matchKey] ?? {
+                        mainccnt: 0,
+                        mainconvAmt: 0,
+                      };
+
+                    return (
+                      <tr key={r.nccAdId}>
+                        <td
+                          style={{
+                            padding: "8px",
+                            borderBottom:
+                              "1px solid #1f2937",
+                          }}
+                        >
+                          {r.imageUrl ? (
+                            <img
+                              src={r.imageUrl}
+                              alt="thumbnail"
+                              width={60}
+                              height={60}
+                              style={{
+                                borderRadius: 8,
+                                objectFit: "cover",
+                              }}
+                            />
+                          ) : (
+                            "-"
+                          )}
+                        </td>
+                        <td
+                          style={{
+                            padding: "8px",
+                            borderBottom:
+                              "1px solid #1f2937",
+                          }}
+                        >
+                          {r.productName || "-"}
+                        </td>
+                        <td
+                          style={{
+                            padding: "8px",
+                            borderBottom:
+                              "1px solid #1f2937",
+                          }}
+                        >
+                          {r.mallProductId || "-"}
+                        </td>
+                        <td
+                          style={{
+                            padding: "8px",
+                            borderBottom:
+                              "1px solid #1f2937",
+                          }}
+                        >
+                          {r.nccAdId || "-"}
+                        </td>
+                        <td
+                          style={{
+                            padding: "8px",
+                            borderBottom:
+                              "1px solid #1f2937",
+                          }}
+                        >
+                          {r.name || "-"}
+                        </td>
+                        <td
+                          style={{
+                            padding: "8px",
+                            borderBottom:
+                              "1px solid #1f2937",
+                          }}
+                        >
+                          {num(r.impCnt)}
+                        </td>
+                        <td
+                          style={{
+                            padding: "8px",
+                            borderBottom:
+                              "1px solid #1f2937",
+                          }}
+                        >
+                          {num(r.clkCnt)}
+                        </td>
+                        <td
+                          style={{
+                            padding: "8px",
+                            borderBottom:
+                              "1px solid #1f2937",
+                          }}
+                        >
+                          {pct(r.ctr)}
+                        </td>
+                        <td
+                          style={{
+                            padding: "8px",
+                            borderBottom:
+                              "1px solid #1f2937",
+                          }}
+                        >
+                          {num(r.cpc)}
+                        </td>
+                        <td
+                          style={{
+                            padding: "8px",
+                            borderBottom:
+                              "1px solid #1f2937",
+                          }}
+                        >
+                          {num(r.avgRnk)}
+                        </td>
+                        <td
+                          style={{
+                            padding: "8px",
+                            borderBottom:
+                              "1px solid #1f2937",
+                            textAlign: "right",
+                          }}
+                        >
+                          {fmtKRW(r.salesAmt)}
+                        </td>
+                        <td
+                          style={{
+                            padding: "8px",
+                            borderBottom:
+                              "1px solid #1f2937",
+                            textAlign: "right",
+                          }}
+                        >
+                          {num(r.ccnt)}
+                        </td>
+                        <td
+                          style={{
+                            padding: "8px",
+                            borderBottom:
+                              "1px solid #1f2937",
+                            textAlign: "right",
+                          }}
+                        >
+                          {fmtKRW(r.convAmt)}
+                        </td>
+                        <td
+                          style={{
+                            padding: "8px",
+                            borderBottom:
+                              "1px solid #1f2937",
+                            textAlign: "right",
+                          }}
+                        >
+                          {num(main.mainccnt)}
+                        </td>
+                        <td
+                          style={{
+                            padding: "8px",
+                            borderBottom:
+                              "1px solid #1f2937",
+                            textAlign: "right",
+                          }}
+                        >
+                          {fmtKRW(main.mainconvAmt)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+
+                  {!rows.length && !loading && (
+                    <tr>
+                      <td
+                        colSpan={15}
+                        style={{
+                          padding: "14px",
+                          color: "#9ca3af",
+                          textAlign: "center",
+                        }}
+                      >
+                        데이터가 없습니다.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </section>
 
 
