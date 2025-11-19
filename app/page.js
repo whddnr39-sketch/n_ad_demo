@@ -1669,14 +1669,14 @@ function BulkControlTab() {
               >
                 <thead>
                   <tr>
-                    <th style={thStyle}>이름 (목업)</th>
-                    <th style={thStyle}>광고 ID (adId)</th>
-                    <th style={thStyle}>상품 ID (목업)</th>
-                    <th style={thStyle}>노출수 (imp)</th>
-                    <th style={thStyle}>클릭수 (clk)</th>
-                    <th style={thStyle}>광고비 (cost, VAT포함)</th>
-                    <th style={thStyle}>전환수 (convCnt)</th>
-                    <th style={thStyle}>전환매출 (convAmt)</th>
+                    <th style={thStyle}>이름</th>
+                    <th style={thStyle}>광고 ID</th>
+                    <th style={thStyle}>상품 ID</th>
+                    <th style={thStyle}>노출수</th>
+                    <th style={thStyle}>클릭수</th>
+                    <th style={thStyle}>광고비</th>
+                    <th style={thStyle}>전환수</th>
+                    <th style={thStyle}>전환매출</th>
                     <th style={thStyle}>ROAS</th>
                     <th style={thStyle}>주 전환수 (목업)</th>
                     <th style={thStyle}>주 전환매출 (목업)</th>
@@ -1693,9 +1693,9 @@ function BulkControlTab() {
                           background: idx % 2 === 0 ? "#020617" : "#020617",
                         }}
                       >
-                        <td style={tdStyle}>-</td>
+                        <td style={tdStyle}>{r.adName}</td>
                         <td style={tdStyle}>{r.adId}</td>
-                        <td style={tdStyle}>-</td>
+                        <td style={tdStyle}>{r.mallProductId}</td>
                         <td style={{ ...tdStyle, textAlign: "right" }}>
                           {fmtNum(r.imp)}
                         </td>
