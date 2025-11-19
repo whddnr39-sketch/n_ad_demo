@@ -1233,12 +1233,14 @@ const summary = useMemo(() => {
 }
 
 /* ---------- 2번 탭: 소재 일괄 컨트롤 (룰 & 시뮬) 스켈레톤 ---------- */
+/* ---------- 2번 탭: 소재 일괄 컨트롤 (룰 & 시뮬) 스켈레톤 ---------- */
 function BulkControlTab() {
   const today = kstYesterdayDash(); // 1번 탭과 동일하게 어제를 기본값으로 사용
   const [start, setStart] = useState(today);
   const [end, setEnd] = useState(today);
 
-  // STEP1: 조회된 소재 데이터
+  // STEP1: 조회된 소재 데이터 (이제 /api/naver/ad-summary 응답 구조)
+  // [{ adId, campaignId, imp, clk, cost, convCnt, convAmt }, ...]
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
@@ -1344,6 +1346,42 @@ function BulkControlTab() {
     cursor: "pointer",
   };
 
+  const thStyle = {
+    padding: "6px 6px",
+    border: "1px solid #27324a",
+    fontSize: 11,
+    whiteSpace: "nowrap",
+    background: "#020617",
+    color: "#e5e7eb",
+  };
+
+  const tdStyle = {
+    padding: "6px 6px",
+    border: "1px solid #111827",
+    fontSize: 11,
+    color: "#e5e7eb",
+  };
+
+  // 간단 포맷터
+  const fmtNum = (v) => {
+    if (v == null || isNaN(v)) return "-";
+    return Number(v).toLocaleString("ko-KR");
+  };
+  const fmtKRW = (v) => {
+    if (v == null || isNaN(v)) return "-";
+    return Number(v).toLocaleString("ko-KR");
+  };
+  const fmtPct = (v) => {
+    if (v == null || isNaN(v)) return "-";
+    return `${v.toFixed(1)}%`;
+  };
+
+  const calcRoas = (convAmt, cost) => {
+    if (!cost || cost === 0) return "-";
+    const roas = (Number(convAmt || 0) / Number(cost)) * 100;
+    return `${roas.toFixed(1)}%`;
+  };
+
   // 🔢 기간 일수 계산 (양 끝 포함)
   const dayCount = useMemo(() => {
     if (!start || !end) return 0;
@@ -1358,7 +1396,7 @@ function BulkControlTab() {
     }
   }, [start, end]);
 
-  // 📊 STEP1 요약: 합계 + 일평균
+  // 📊 STEP1 요약: 합계 + 일평균 (stat 응답 구조에 맞게 수정)
   const summary = useMemo(() => {
     let totalCost = 0;
     let totalConv = 0;
@@ -1367,10 +1405,12 @@ function BulkControlTab() {
     let totalMainConvAmt = 0;
 
     for (const r of rows) {
-      totalCost += Number(r.salesAmt) || 0;
-      totalConv += Number(r.ccnt) || 0;
+      // 백엔드: { adId, campaignId, imp, clk, cost, convCnt, convAmt }
+      totalCost += Number(r.cost) || 0;
+      totalConv += Number(r.convCnt) || 0;
       totalConvAmt += Number(r.convAmt) || 0;
 
+      // 주 전환(xlsx) 붙이기 전까지는 0 유지 (목업)
       const key = r.mallProductId;
       const main = (mainConvMap && mainConvMap[key]) || {};
       totalMainConv += Number(main.mainccnt) || 0;
@@ -1414,14 +1454,15 @@ function BulkControlTab() {
     };
   }, [rows, mainConvMap, dayCount]);
 
-  // 🚀 STEP1: 소재 데이터 조회
+  // 🚀 STEP1: 소재 데이터 조회 → 이제 /api/naver/ad-summary 사용
   async function loadBulk() {
     try {
       setErr("");
       setLoading(true);
+      setRows([]);
 
       const res = await fetch(
-        `/api/stats/ads?start=${start}&end=${end}`
+        `/api/naver/ad-summary?start=${start}&end=${end}`
       );
       const j = await res.json();
 
@@ -1429,7 +1470,12 @@ function BulkControlTab() {
         throw new Error(j.error || `조회 실패 (${res.status})`);
       }
 
-      setRows(j.rows || []);
+      // j는 [{ adId, campaignId, imp, clk, cost, convCnt, convAmt }, ...]
+      if (Array.isArray(j)) {
+        setRows(j);
+      } else {
+        setRows([]);
+      }
     } catch (e) {
       console.error(e);
       setRows([]);
@@ -1454,8 +1500,12 @@ function BulkControlTab() {
 
       {/* STEP 1: 기간 선택 & 데이터 로드 */}
       <section style={wrapBox}>
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-          <h2 style={{ fontSize: 14, fontWeight: 600 }}>1. 기간 선택 & 데이터 로드</h2>
+        <div
+          style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}
+        >
+          <h2 style={{ fontSize: 14, fontWeight: 600 }}>
+            1. 기간 선택 & 데이터 로드
+          </h2>
           <span style={{ fontSize: 11, color: "#6b7280" }}>
             {rows.length
               ? `조회된 소재 수: ${rows.length.toLocaleString("ko-KR")}개`
@@ -1543,14 +1593,22 @@ function BulkControlTab() {
               fontSize: 12,
             }}
           >
-            {/* 네가 말한 순서대로 값 바인딩 */}
             <BulkSummaryItem label="총 비용" value={fmtKRW(summary.total.cost)} />
-            <BulkSummaryItem label="총 전환수" value={num(summary.total.conv)} />
-            <BulkSummaryItem label="총 전환매출" value={fmtKRW(summary.total.convAmt)} />
-            <BulkSummaryItem label="ROAS" value={pct(summary.total.roas)} />
+            <BulkSummaryItem
+              label="총 전환수"
+              value={fmtNum(summary.total.conv)}
+            />
+            <BulkSummaryItem
+              label="총 전환매출"
+              value={fmtKRW(summary.total.convAmt)}
+            />
+            <BulkSummaryItem
+              label="ROAS"
+              value={fmtPct(summary.total.roas)}
+            />
             <BulkSummaryItem
               label="총 주 전환수"
-              value={num(summary.total.mainConv)}
+              value={fmtNum(summary.total.mainConv)}
             />
             <BulkSummaryItem
               label="총 주 전환매출"
@@ -1558,18 +1616,27 @@ function BulkControlTab() {
             />
             <BulkSummaryItem
               label="주 ROAS"
-              value={pct(summary.total.mainRoas)}
+              value={fmtPct(summary.total.mainRoas)}
             />
-            <BulkSummaryItem label="일평균 비용" value={fmtKRW(summary.daily.cost)} />
-            <BulkSummaryItem label="일평균 전환수" value={num(summary.daily.conv)} />
+            <BulkSummaryItem
+              label="일평균 비용"
+              value={fmtKRW(summary.daily.cost)}
+            />
+            <BulkSummaryItem
+              label="일평균 전환수"
+              value={fmtNum(summary.daily.conv)}
+            />
             <BulkSummaryItem
               label="일평균 전환매출"
               value={fmtKRW(summary.daily.convAmt)}
             />
-            <BulkSummaryItem label="일평균 ROAS" value={pct(summary.daily.roas)} />
+            <BulkSummaryItem
+              label="일평균 ROAS"
+              value={fmtPct(summary.daily.roas)}
+            />
             <BulkSummaryItem
               label="일평균 주 전환수"
-              value={num(summary.daily.mainConv)}
+              value={fmtNum(summary.daily.mainConv)}
             />
             <BulkSummaryItem
               label="일평균 주 전환매출"
@@ -1577,9 +1644,84 @@ function BulkControlTab() {
             />
             <BulkSummaryItem
               label="일평균 주 ROAS"
-              value={pct(summary.daily.mainRoas)}
+              value={fmtPct(summary.daily.mainRoas)}
             />
           </div>
+        </div>
+
+        {/* 📋 STEP1 결과 테이블: stat-summary (목업 필드 포함) */}
+        <div style={{ marginTop: 16 }}>
+          {rows.length === 0 && !loading && (
+            <div style={{ fontSize: 12, color: "#6b7280" }}>
+              아직 조회된 데이터가 없습니다.
+            </div>
+          )}
+
+          {rows.length > 0 && (
+            <div style={{ overflowX: "auto", marginTop: 8 }}>
+              <table
+                style={{
+                  borderCollapse: "collapse",
+                  width: "100%",
+                  minWidth: 1000,
+                  background: "#020617",
+                }}
+              >
+                <thead>
+                  <tr>
+                    <th style={thStyle}>이름 (목업)</th>
+                    <th style={thStyle}>광고 ID (adId)</th>
+                    <th style={thStyle}>상품 ID (목업)</th>
+                    <th style={thStyle}>노출수 (imp)</th>
+                    <th style={thStyle}>클릭수 (clk)</th>
+                    <th style={thStyle}>광고비 (cost, VAT포함)</th>
+                    <th style={thStyle}>전환수 (convCnt)</th>
+                    <th style={thStyle}>전환매출 (convAmt)</th>
+                    <th style={thStyle}>ROAS</th>
+                    <th style={thStyle}>주 전환수 (목업)</th>
+                    <th style={thStyle}>주 전환매출 (목업)</th>
+                    <th style={thStyle}>주 ROAS (목업)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r, idx) => {
+                    const roas = calcRoas(r.convAmt, r.cost);
+                    return (
+                      <tr
+                        key={`${r.adId}-${idx}`}
+                        style={{
+                          background: idx % 2 === 0 ? "#020617" : "#020617",
+                        }}
+                      >
+                        <td style={tdStyle}>-</td>
+                        <td style={tdStyle}>{r.adId}</td>
+                        <td style={tdStyle}>-</td>
+                        <td style={{ ...tdStyle, textAlign: "right" }}>
+                          {fmtNum(r.imp)}
+                        </td>
+                        <td style={{ ...tdStyle, textAlign: "right" }}>
+                          {fmtNum(r.clk)}
+                        </td>
+                        <td style={{ ...tdStyle, textAlign: "right" }}>
+                          {fmtKRW(Math.round(r.cost || 0))}
+                        </td>
+                        <td style={{ ...tdStyle, textAlign: "right" }}>
+                          {fmtNum(r.convCnt)}
+                        </td>
+                        <td style={{ ...tdStyle, textAlign: "right" }}>
+                          {fmtKRW(r.convAmt || 0)}
+                        </td>
+                        <td style={{ ...tdStyle, textAlign: "right" }}>{roas}</td>
+                        <td style={{ ...tdStyle, textAlign: "right" }}>-</td>
+                        <td style={{ ...tdStyle, textAlign: "right" }}>-</td>
+                        <td style={{ ...tdStyle, textAlign: "right" }}>-</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </section>
 
