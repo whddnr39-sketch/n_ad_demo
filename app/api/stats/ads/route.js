@@ -160,7 +160,7 @@ async function listAdsAll(creds, { adgroupId, campaignId }) {
     for (const c of chunks) all.push(...c);
 
     // 너무 몰아서 치지 않도록 살짝 텀
-    await sleep(150);
+    await sleep(40);
   }
 
   return { ads: all, nextCursor: null };
@@ -194,7 +194,7 @@ async function listAdsChunk(creds, { campaignId, limit, cursor }) {
 
     if (ads.length < limit) {
       // 다음 청크 전에 아주 짧은 텀 (레이트 리밋 완화)
-      await sleep(150);
+      await sleep(40);
     }
   }
 
