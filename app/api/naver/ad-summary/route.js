@@ -4,7 +4,7 @@ import crypto from "crypto";
 
 // HMAC 서명 생성 (네이버 검색광고 포맷)
 function generateSignature(timestamp, method, path) {
-  const secret = process.env.NAVER_SECRET_KEY;
+  const secret = process.env.SECRET_KEY;
   const message = `${timestamp}.${method}.${path}`;
   return crypto
     .createHmac("sha256", secret)
@@ -19,8 +19,8 @@ async function callNaverAPI(method, path, body) {
 
   const headers = {
     "X-Timestamp": timestamp,
-    "X-API-KEY": process.env.NAVER_API_KEY,
-    "X-Customer": process.env.NAVER_CUSTOMER_ID,
+    "X-API-KEY": process.env.API_KEY,
+    "X-Customer": process.env.CUSTOMER_ID,
     "X-Signature": signature,
     "Content-Type": "application/json",
   };
@@ -57,8 +57,8 @@ async function waitUntilBuiltStat(jobId) {
       method: "GET",
       headers: {
         "X-Timestamp": timestamp,
-        "X-API-KEY": process.env.NAVER_API_KEY,
-        "X-Customer": process.env.NAVER_CUSTOMER_ID,
+        "X-API-KEY": process.env.API_KEY,
+        "X-Customer": process.env.CUSTOMER_ID,
         "X-Signature": signature,
       },
     });
@@ -108,8 +108,8 @@ async function waitUntilBuiltMaster(jobId) {
       method: "GET",
       headers: {
         "X-Timestamp": timestamp,
-        "X-API-KEY": process.env.NAVER_API_KEY,
-        "X-Customer": process.env.NAVER_CUSTOMER_ID,
+        "X-API-KEY": process.env.API_KEY,
+        "X-Customer": process.env.CUSTOMER_ID,
         "X-Signature": signature,
       },
     });
@@ -166,8 +166,8 @@ async function downloadTSV(url) {
 
   const headers = {
     "X-Timestamp": timestamp,
-    "X-API-KEY": process.env.NAVER_API_KEY,
-    "X-Customer": process.env.NAVER_CUSTOMER_ID,
+    "X-API-KEY": process.env.API_KEY,
+    "X-Customer": process.env.CUSTOMER_ID,
     "X-Signature": signature,
   };
 

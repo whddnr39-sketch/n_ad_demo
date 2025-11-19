@@ -1684,41 +1684,83 @@ function BulkControlTab() {
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((r, idx) => {
-                    const roas = calcRoas(r.convAmt, r.cost);
-                    return (
-                      <tr
-                        key={`${r.adId}-${idx}`}
-                        style={{
-                          background: idx % 2 === 0 ? "#020617" : "#020617",
-                        }}
-                      >
-                        <td style={tdStyle}>{r.adName}</td>
-                        <td style={tdStyle}>{r.adId}</td>
-                        <td style={tdStyle}>{r.mallProductId}</td>
-                        <td style={{ ...tdStyle, textAlign: "right" }}>
-                          {fmtNum(r.imp)}
-                        </td>
-                        <td style={{ ...tdStyle, textAlign: "right" }}>
-                          {fmtNum(r.clk)}
-                        </td>
-                        <td style={{ ...tdStyle, textAlign: "right" }}>
-                          {fmtKRW(Math.round(r.cost || 0))}
-                        </td>
-                        <td style={{ ...tdStyle, textAlign: "right" }}>
-                          {fmtNum(r.convCnt)}
-                        </td>
-                        <td style={{ ...tdStyle, textAlign: "right" }}>
-                          {fmtKRW(r.convAmt || 0)}
-                        </td>
-                        <td style={{ ...tdStyle, textAlign: "right" }}>{roas}</td>
-                        <td style={{ ...tdStyle, textAlign: "right" }}>-</td>
-                        <td style={{ ...tdStyle, textAlign: "right" }}>-</td>
-                        <td style={{ ...tdStyle, textAlign: "right" }}>-</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
+  {rows.map((r, idx) => {
+    const roas = calcRoas(r.convAmt, r.cost);
+
+    const adName = r.adName || "-";
+    const productId = r.mallProductId || "-";
+
+    // 🔥 mallProductId 기준으로 주 전환 데이터 조회
+    const main = (mainConvMap && mainConvMap[r.mallProductId]) || {};
+    const mainConv = Number(main.mainccnt) || 0;
+    const mainConvAmt = Number(main.mainconvAmt) || 0;
+    const mainRoas =
+      r.cost && r.cost > 0
+        ? `${((mainConvAmt / r.cost) * 100).toFixed(1)}%`
+        : "-";
+
+    return (
+      <tr
+        key={`${r.adId}-${idx}`}
+        style={{
+          background: idx % 2 === 0 ? "#020617" : "#020617",
+        }}
+      >
+        {/* 이름 */}
+        <td style={tdStyle}>{adName}</td>
+
+        {/* 광고 ID */}
+        <td style={tdStyle}>{r.adId}</td>
+
+        {/* 상품 ID */}
+        <td style={tdStyle}>{productId}</td>
+
+        {/* 노출수 */}
+        <td style={{ ...tdStyle, textAlign: "right" }}>
+          {fmtNum(r.imp)}
+        </td>
+
+        {/* 클릭수 */}
+        <td style={{ ...tdStyle, textAlign: "right" }}>
+          {fmtNum(r.clk)}
+        </td>
+
+        {/* 광고비 (VAT 포함) */}
+        <td style={{ ...tdStyle, textAlign: "right" }}>
+          {fmtKRW(Math.round(r.cost || 0))}
+        </td>
+
+        {/* 전환수 */}
+        <td style={{ ...tdStyle, textAlign: "right" }}>
+          {fmtNum(r.convCnt)}
+        </td>
+
+        {/* 전환매출 */}
+        <td style={{ ...tdStyle, textAlign: "right" }}>
+          {fmtKRW(r.convAmt || 0)}
+        </td>
+
+        {/* ROAS */}
+        <td style={{ ...tdStyle, textAlign: "right" }}>{roas}</td>
+
+        {/* ✅ 주 전환수 */}
+        <td style={{ ...tdStyle, textAlign: "right" }}>
+          {mainConv ? fmtNum(mainConv) : "-"}
+        </td>
+
+        {/* ✅ 주 전환매출 */}
+        <td style={{ ...tdStyle, textAlign: "right" }}>
+          {mainConvAmt ? fmtKRW(mainConvAmt) : "-"}
+        </td>
+
+        {/* ✅ 주 ROAS */}
+        <td style={{ ...tdStyle, textAlign: "right" }}>
+          {mainRoas}
+        </td>
+      </tr>
+    );
+  })}
+</tbody>
               </table>
             </div>
           )}
