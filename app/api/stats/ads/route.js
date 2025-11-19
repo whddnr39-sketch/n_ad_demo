@@ -30,8 +30,9 @@ function env() {
   const secretKey = process.env.SECRET_KEY || process.env.NAVER_SECRET_KEY;
   const customerId =
     process.env.CUSTOMER_ID || process.env.NAVER_CUSTOMER_ID;
-  if (!apiKey || !secretKey || !customerId)
+  if (!apiKey || !secretKey || !customerId) {
     throw new Error("env(API_KEY/SECRET_KEY/CUSTOMER_ID) 필요");
+  }
   return { apiKey, secretKey, customerId };
 }
 
@@ -40,9 +41,9 @@ function sleep(ms) {
 }
 
 /**
- * start / end / adgroupId / campaignId / limit / cursor 파싱
- *  - limit: 한 번에 가져올 최대 소재 개수 (없으면 전체)
- *  - cursor: adgroup 청크 시작 index (없으면 0부터)
+ * start / end / adgroupId / campaignId / cursor / limit 파싱
+ *  - cursor: 광고그룹 인덱스 또는 그룹 내 소재 인덱스
+ *  - limit: 이번 요청에서 가져올 최대 소재 개수 (ex: 400)
  */
 function parseQuery(url) {
   const u = new URL(url);
@@ -55,9 +56,13 @@ function parseQuery(url) {
 
   if (!start || !end) throw new Error("start/end 필요");
 
-  const limit = limitStr ? Number(limitStr) : null;
-  const safeLimit =
-    Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : null;
+  let limit = null;
+  if (limitStr) {
+    const n = Number(limitStr);
+    if (Number.isFinite(n) && n > 0) {
+      limit = Math.floor(n);
+    }
+  }
 
   return {
     start,
@@ -65,7 +70,7 @@ function parseQuery(url) {
     adgroupId,
     campaignId,
     cursor: cursor ?? null,
-    limit: safeLimit,
+    limit,
   };
 }
 
@@ -89,10 +94,9 @@ async function listAdsOfGroup(creds, adgroupId) {
     ),
     cache: "no-store",
   });
-
-  if (!res.ok)
+  if (!res.ok) {
     throw new Error(`ads ${adgroupId} ${res.status}: ${await res.text()}`);
-
+  }
   const arr = await res.json();
 
   return (arr || [])
@@ -131,16 +135,18 @@ async function listAdgroups(creds, campaignId) {
     ),
     cache: "no-store",
   });
-
-  if (!res.ok)
+  if (!res.ok) {
     throw new Error(`adgroups ${res.status}: ${await res.text()}`);
-
+  }
   const arr = await res.json();
-  return (arr || []).map((g) => ({ id: g.nccAdgroupId, name: g.name }));
+  return (arr || []).map((g) => ({
+    id: g.nccAdgroupId,
+    name: g.name,
+  }));
 }
 
 /**
- * 기존처럼 "전체 한 번에" 소재 가져오기 (Stats 탭에서 캠페인/그룹 단위 조회 시 사용)
+ * 전체 한 번에 조회 (limit 없이) – 1번 탭에서 캠페인/그룹 단위 조회 시 사용
  */
 async function listAdsAll(creds, { adgroupId, campaignId }) {
   if (adgroupId) {
@@ -149,65 +155,76 @@ async function listAdsAll(creds, { adgroupId, campaignId }) {
   }
 
   const groups = await listAdgroups(creds, campaignId || null);
-  const CONC = 3; // 레이트 리밋 방지를 위해 동시 요청 수 조금 줄임
-  let all = [];
+  const CONC = 3; // 동시 그룹 처리 개수 (너무 높이면 429 위험)
+  const all = [];
 
   for (let i = 0; i < groups.length; i += CONC) {
     const part = groups.slice(i, i + CONC);
     const chunks = await Promise.all(
       part.map((g) => listAdsOfGroup(creds, g.id))
     );
-    for (const c of chunks) all.push(...c);
-
-    // 너무 몰아서 치지 않도록 살짝 텀
-    await sleep(40);
+    for (const c of chunks) {
+      all.push(...c);
+    }
+    await sleep(150);
   }
 
   return { ads: all, nextCursor: null };
 }
 
 /**
- * limit & cursor 기반으로 "부분 청크"만 가져오기
- *  - Bulk 탭 STEP1에서 전체 계정 대상 조회 시 사용
- *  - limit 개수만큼 채워질 때까지 adgroup 단위로 순차 호출
+ * limit & cursor 기반으로 "최대 limit개"만 가져오기
+ *  - Bulk 탭 STEP1에서 전체 계정/캠페인 대상 조회 시 사용
+ *  - 네가 말한 것처럼, 여기서 400개 단위로 끊어서 리턴 가능
  */
-async function listAdsChunk(creds, { campaignId, limit, cursor }) {
-  const groups = await listAdgroups(creds, campaignId || null);
-  const startIndex = cursor ? Number(cursor) || 0 : 0;
+async function listAdsChunk(creds, { adgroupId, campaignId, cursor, limit }) {
+  // adgroupId 하나만 볼 때는 그룹 단위 청크 필요 없이 소재 배열에서 슬라이스
+  if (adgroupId) {
+    const allAds = await listAdsOfGroup(creds, adgroupId);
+    const startIndex = cursor ? Number(cursor) || 0 : 0;
+    const slice = allAds.slice(startIndex, startIndex + limit);
+    const nextCursor =
+      startIndex + limit < allAds.length
+        ? String(startIndex + limit)
+        : null;
+    return { ads: slice, nextCursor };
+  }
 
-  const CONC = 3; // 동시에 처리할 그룹 수
+  // 캠페인/계정 전체 대상 – 광고그룹 기준으로 순회하면서 소재를 limit개까지 채움
+  const groups = await listAdgroups(creds, campaignId || null);
+  const startGroup = cursor ? Number(cursor) || 0 : 0;
+  const CONC = 3;
   const ads = [];
 
-  let i = startIndex;
+  let i = startGroup;
   while (i < groups.length && ads.length < limit) {
     const part = groups.slice(i, i + CONC);
+
     const chunks = await Promise.all(
       part.map((g) => listAdsOfGroup(creds, g.id))
     );
 
-    for (const c of chunks) {
-      ads.push(...c);
+    for (const chunk of chunks) {
+      for (const ad of chunk) {
+        ads.push(ad);
+        if (ads.length >= limit) break;
+      }
       if (ads.length >= limit) break;
     }
 
-    i += CONC;
+    i += part.length;
 
     if (ads.length < limit) {
-      // 다음 청크 전에 아주 짧은 텀 (레이트 리밋 완화)
-      await sleep(40);
+      await sleep(150);
     }
   }
 
   const nextCursor = i < groups.length ? String(i) : null;
-
-  return { ads, nextCursor, totalGroups: groups.length };
+  return { ads, nextCursor };
 }
 
 /* ---------------- /stats 호출 ---------------- */
 
-/**
- * 단일 소재 id로 /stats 호출
- */
 async function fetchStatPerAd(creds, adId, start, end) {
   const path = "/stats";
   const params = new URLSearchParams();
@@ -221,8 +238,8 @@ async function fetchStatPerAd(creds, adId, start, end) {
       "ctr",
       "cpc",
       "avgRnk",
-      "ccnt", // 전환수
-      "convAmt", // 전환매출액
+      "ccnt",
+      "convAmt",
     ])
   );
   params.set("timeRange", JSON.stringify({ since: start, until: end }));
@@ -238,9 +255,9 @@ async function fetchStatPerAd(creds, adId, start, end) {
     ),
     cache: "no-store",
   });
-
-  if (!res.ok)
+  if (!res.ok) {
     throw new Error(`stats ${adId} ${res.status}: ${await res.text()}`);
+  }
 
   const data = await res.json();
   const arr = Array.isArray(data)
@@ -291,25 +308,29 @@ async function fetchStatPerAd(creds, adId, start, end) {
 export async function GET(req) {
   try {
     const creds = env();
-    const {
-      start,
-      end,
-      adgroupId,
-      campaignId,
-      cursor,
-      limit,
-    } = parseQuery(req.url);
+    const { start, end, adgroupId, campaignId, cursor, limit } =
+      parseQuery(req.url);
 
+    // 네가 말한대로 "400개 단위"로 쓰려면 프론트에서 limit=400을 넘기면 됨
     let adsInfo;
-    if (limit && !adgroupId) {
-      // ✅ Bulk 탭용: limit & cursor 기반 부분 로딩
+    if (limit && !adgroupId && !campaignId) {
+      // 계정 전체 + limit 지정
       adsInfo = await listAdsChunk(creds, {
-        campaignId: campaignId || null,
-        limit,
+        adgroupId: null,
+        campaignId: null,
         cursor,
+        limit,
+      });
+    } else if (limit) {
+      // adgroupId / campaignId 가 같이 온 경우에도 limit 사용
+      adsInfo = await listAdsChunk(creds, {
+        adgroupId: adgroupId || null,
+        campaignId: campaignId || null,
+        cursor,
+        limit,
       });
     } else {
-      // ✅ 기존 동작: 전체 조회 (Stats 탭에서 사용)
+      // limit 없으면 기존처럼 전체 조회
       adsInfo = await listAdsAll(creds, { adgroupId, campaignId });
     }
 
@@ -328,7 +349,6 @@ export async function GET(req) {
       });
     }
 
-    // 소재별 /stats 조회
     const CONC = 10;
     const rows = [];
     let total = 0;
@@ -366,7 +386,7 @@ export async function GET(req) {
       campaignId: campaignId || null,
       total: Math.round(total),
       rows,
-      nextCursor, // 🔥 Bulk 탭에서 다음 청크 호출 여부 판단에 사용
+      nextCursor,
     });
   } catch (e) {
     return new Response(
