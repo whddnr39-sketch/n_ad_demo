@@ -21,6 +21,11 @@ function kstYesterdayDash() {
 export default function Page() {
   const [activeTab, setActiveTab] = useState("stats"); // "stats" | "bulk"
 
+  // 🔥 주 전환(xlsx) 관련 공통 상태 (탭 간 공유)
+  const [convFile, setConvFile] = useState(null);
+  const [mainConvMap, setMainConvMap] = useState({}); // { mallProductId: { mainccnt, mainconvAmt } }
+  const [uploading, setUploading] = useState(false);
+
   return (
     <div
       style={{
@@ -63,8 +68,21 @@ export default function Page() {
 
       {/* 우측 메인 영역 */}
       <main style={{ flex: 1, padding: "20px 24px" }}>
-        {activeTab === "stats" && <StatsTab />}
-        {activeTab === "bulk" && <BulkControlTab />}
+        {activeTab === "stats" && (
+          <StatsTab
+            mainConvMap={mainConvMap}
+            setMainConvMap={setMainConvMap}
+            convFile={convFile}
+            setConvFile={setConvFile}
+            uploading={uploading}
+            setUploading={setUploading}
+          />
+        )}
+        {activeTab === "bulk" && (
+          <BulkControlTab
+            mainConvMap={mainConvMap}
+          />
+        )}
       </main>
     </div>
   );
@@ -112,11 +130,16 @@ function SummaryItem({ label, value }) {
 
 
 /* ---------- 1번 탭: 기존 광고비 조회/개별 컨트롤 ---------- */
-function StatsTab() {
-  // 주 전환(xlsx) 업로드 상태
-  const [convFile, setConvFile] = useState(null);
-  const [mainConvMap, setMainConvMap] = useState({}); // { mallProductId: { mainccnt, mainconvAmt } }
-  const [uploading, setUploading] = useState(false);
+function StatsTab({
+  mainConvMap,
+  setMainConvMap,
+  convFile,
+  setConvFile,
+  uploading,
+  setUploading,
+}) {
+  // 주 전환(xlsx) 업로드 state는 이제 상위(Page)에서 받음
+
   const [bidInputs, setBidInputs] = useState({}); // 소재별 입력한 입찰가
   const [savingBidId, setSavingBidId] = useState(null); // 입찰가 저장 중인 소재 id
   const [togglingId, setTogglingId] = useState(null); // ON/OFF 토글 중인 소재 id
@@ -143,76 +166,74 @@ function StatsTab() {
 
   // 날짜 범위 일수 계산
   const dayCount = useMemo(() => {
-  if (!start || !end) return 0;
-  try {
-    const s = new Date(`${start}T00:00:00`);
-    const e = new Date(`${end}T00:00:00`);
-    const diffMs = e.getTime() - s.getTime();
-    if (diffMs < 0) return 0;
-    const days = diffMs / (1000 * 60 * 60 * 24) + 1; // 양 끝 포함
-    return days;
-  } catch {
-    return 0;
-  }
-}, [start, end]);
+    if (!start || !end) return 0;
+    try {
+      const s = new Date(`${start}T00:00:00`);
+      const e = new Date(`${end}T00:00:00`);
+      const diffMs = e.getTime() - s.getTime();
+      if (diffMs < 0) return 0;
+      const days = diffMs / (1000 * 60 * 60 * 24) + 1; // 양 끝 포함
+      return days;
+    } catch {
+      return 0;
+    }
+  }, [start, end]);
 
-const summary = useMemo(() => {
-  let totalCost = 0;
-  let totalConv = 0;
-  let totalConvAmt = 0;
-  let totalMainConv = 0;
-  let totalMainConvAmt = 0;
+  const summary = useMemo(() => {
+    let totalCost = 0;
+    let totalConv = 0;
+    let totalConvAmt = 0;
+    let totalMainConv = 0;
+    let totalMainConvAmt = 0;
 
-  for (const r of rows) {
-    totalCost += Number(r.salesAmt) || 0;
-    totalConv += Number(r.ccnt) || 0;
-    totalConvAmt += Number(r.convAmt) || 0;
+    for (const r of rows) {
+      totalCost += Number(r.salesAmt) || 0;
+      totalConv += Number(r.ccnt) || 0;
+      totalConvAmt += Number(r.convAmt) || 0;
 
-    const key = r.mallProductId;
-    const main = (mainConvMap && mainConvMap[key]) || {};
-    totalMainConv += Number(main.mainccnt) || 0;
-    totalMainConvAmt += Number(main.mainconvAmt) || 0;
-  }
+      const key = r.mallProductId;
+      const main = (mainConvMap && mainConvMap[key]) || {};
+      totalMainConv += Number(main.mainccnt) || 0;
+      totalMainConvAmt += Number(main.mainconvAmt) || 0;
+    }
 
-  const roas = totalCost > 0 ? (totalConvAmt / totalCost) * 100 : 0;
-  const mainRoas = totalCost > 0 ? (totalMainConvAmt / totalCost) * 100 : 0;
+    const roas = totalCost > 0 ? (totalConvAmt / totalCost) * 100 : 0;
+    const mainRoas = totalCost > 0 ? (totalMainConvAmt / totalCost) * 100 : 0;
 
-  const days = dayCount > 0 ? dayCount : 1;
+    const days = dayCount > 0 ? dayCount : 1;
 
-  const dailyCost = totalCost / days;
-  const dailyConv = totalConv / days;
-  const dailyConvAmt = totalConvAmt / days;
-  const dailyMainConv = totalMainConv / days;
-  const dailyMainConvAmt = totalMainConvAmt / days;
+    const dailyCost = totalCost / days;
+    const dailyConv = totalConv / days;
+    const dailyConvAmt = totalConvAmt / days;
+    const dailyMainConv = totalMainConv / days;
+    const dailyMainConvAmt = totalMainConvAmt / days;
 
-  const dailyRoas =
-    dailyCost > 0 ? (dailyConvAmt / dailyCost) * 100 : 0;
-  const dailyMainRoas =
-    dailyCost > 0 ? (dailyMainConvAmt / dailyCost) * 100 : 0;
+    const dailyRoas =
+      dailyCost > 0 ? (dailyConvAmt / dailyCost) * 100 : 0;
+    const dailyMainRoas =
+      dailyCost > 0 ? (dailyMainConvAmt / dailyCost) * 100 : 0;
 
-  return {
-    total: {
-      cost: totalCost,
-      conv: totalConv,
-      convAmt: totalConvAmt,
-      roas,
-      mainConv: totalMainConv,
-      mainConvAmt: totalMainConvAmt,
-      mainRoas,
-    },
-    daily: {
-      cost: dailyCost,
-      conv: dailyConv,
-      convAmt: dailyConvAmt,
-      roas: dailyRoas,
-      mainConv: dailyMainConv,
-      mainConvAmt: dailyMainConvAmt,
-      mainRoas: dailyMainRoas,
-    },
-  };
-}, [rows, mainConvMap, dayCount]);
-
-
+    return {
+      total: {
+        cost: totalCost,
+        conv: totalConv,
+        convAmt: totalConvAmt,
+        roas,
+        mainConv: totalMainConv,
+        mainConvAmt: totalMainConvAmt,
+        mainRoas,
+      },
+      daily: {
+        cost: dailyCost,
+        conv: dailyConv,
+        convAmt: dailyConvAmt,
+        roas: dailyRoas,
+        mainConv: dailyMainConv,
+        mainConvAmt: dailyMainConvAmt,
+        mainRoas: dailyMainRoas,
+      },
+    };
+  }, [rows, mainConvMap, dayCount]);
 
   /* 초기: 캠페인 목록 */
   useEffect(() => {
@@ -645,83 +666,82 @@ const summary = useMemo(() => {
         )}
       </div>
 
-{/* 합계 & 일평균 요약 */}
-<div style={{ ...box, marginBottom: 16 }}>
-  <div style={{ marginBottom: 8, fontSize: 12, color: "#9ca3af" }}>
-    기간 합계 / 일평균
-  </div>
+      {/* 합계 & 일평균 요약 */}
+      <div style={{ ...box, marginBottom: 16 }}>
+        <div style={{ marginBottom: 8, fontSize: 12, color: "#9ca3af" }}>
+          기간 합계 / 일평균
+        </div>
 
-  {/* 기간 합계 */}
-  <div style={{ marginBottom: 10 }}>
-    <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 4 }}>
-      기간 합계
-    </div>
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
-        gap: 8,
-        fontSize: 12,
-      }}
-    >
-      <SummaryItem label="총 비용" value={fmtKRW(summary.total.cost)} />
-      <SummaryItem label="총 전환수" value={num(summary.total.conv)} />
-      <SummaryItem
-        label="총 전환매출"
-        value={fmtKRW(summary.total.convAmt)}
-      />
-      <SummaryItem label="ROAS" value={pct(summary.total.roas)} />
-      <SummaryItem
-        label="총 주 전환수"
-        value={num(summary.total.mainConv)}
-      />
-      <SummaryItem
-        label="총 주 전환매출"
-        value={fmtKRW(summary.total.mainConvAmt)}
-      />
-      <SummaryItem
-        label="주 ROAS"
-        value={pct(summary.total.mainRoas)}
-      />
-    </div>
-  </div>
+        {/* 기간 합계 */}
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 4 }}>
+            기간 합계
+          </div>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
+              gap: 8,
+              fontSize: 12,
+            }}
+          >
+            <SummaryItem label="총 비용" value={fmtKRW(summary.total.cost)} />
+            <SummaryItem label="총 전환수" value={num(summary.total.conv)} />
+            <SummaryItem
+              label="총 전환매출"
+              value={fmtKRW(summary.total.convAmt)}
+            />
+            <SummaryItem label="ROAS" value={pct(summary.total.roas)} />
+            <SummaryItem
+              label="총 주 전환수"
+              value={num(summary.total.mainConv)}
+            />
+            <SummaryItem
+              label="총 주 전환매출"
+              value={fmtKRW(summary.total.mainConvAmt)}
+            />
+            <SummaryItem
+              label="주 ROAS"
+              value={pct(summary.total.mainRoas)}
+            />
+          </div>
+        </div>
 
-  {/* 일평균 */}
-  <div style={{ borderTop: "1px solid #1f2937", paddingTop: 10 }}>
-    <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 4 }}>
-      일평균
-    </div>
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
-        gap: 8,
-        fontSize: 12,
-      }}
-    >
-      <SummaryItem label="총 비용" value={fmtKRW(summary.daily.cost)} />
-      <SummaryItem label="총 전환수" value={num(summary.daily.conv)} />
-      <SummaryItem
-        label="총 전환매출"
-        value={fmtKRW(summary.daily.convAmt)}
-      />
-      <SummaryItem label="ROAS" value={pct(summary.daily.roas)} />
-      <SummaryItem
-        label="총 주 전환수"
-        value={num(summary.daily.mainConv)}
-      />
-      <SummaryItem
-        label="총 주 전환매출"
-        value={fmtKRW(summary.daily.mainConvAmt)}
-      />
-      <SummaryItem
-        label="주 ROAS"
-        value={pct(summary.daily.mainRoas)}
-      />
-    </div>
-  </div>
-</div>
-
+        {/* 일평균 */}
+        <div style={{ borderTop: "1px solid #1f2937", paddingTop: 10 }}>
+          <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 4 }}>
+            일평균
+          </div>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
+              gap: 8,
+              fontSize: 12,
+            }}
+          >
+            <SummaryItem label="총 비용" value={fmtKRW(summary.daily.cost)} />
+            <SummaryItem label="총 전환수" value={num(summary.daily.conv)} />
+            <SummaryItem
+              label="총 전환매출"
+              value={fmtKRW(summary.daily.convAmt)}
+            />
+            <SummaryItem label="ROAS" value={pct(summary.daily.roas)} />
+            <SummaryItem
+              label="총 주 전환수"
+              value={num(summary.daily.mainConv)}
+            />
+            <SummaryItem
+              label="총 주 전환매출"
+              value={fmtKRW(summary.daily.mainConvAmt)}
+            />
+            <SummaryItem
+              label="주 ROAS"
+              value={pct(summary.daily.mainRoas)}
+            />
+          </div>
+        </div>
+      </div>
 
       {/* 테이블 */}
       <div style={box}>
@@ -1232,21 +1252,16 @@ const summary = useMemo(() => {
   );
 }
 
-/* ---------- 2번 탭: 소재 일괄 컨트롤 (룰 & 시뮬) 스켈레톤 ---------- */
-/* ---------- 2번 탭: 소재 일괄 컨트롤 (룰 & 시뮬) 스켈레톤 ---------- */
-function BulkControlTab() {
+/* ---------- 2번 탭: 소재 일괄 컨트롤 (룰 & 시뮬) ---------- */
+function BulkControlTab({ mainConvMap }) {
   const today = kstYesterdayDash(); // 1번 탭과 동일하게 어제를 기본값으로 사용
   const [start, setStart] = useState(today);
   const [end, setEnd] = useState(today);
 
-  // STEP1: 조회된 소재 데이터 (이제 /api/naver/ad-summary 응답 구조)
-  // [{ adId, campaignId, imp, clk, cost, convCnt, convAmt }, ...]
+  // STEP1: 조회된 소재 데이터 (/api/naver/ad-summary 응답)
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
-
-  // 추후 주 전환 xlsx를 연결할 수도 있으니 구조만 잡아둠
-  const [mainConvMap] = useState({}); // { mallProductId: { mainccnt, mainconvAmt } }
 
   // STEP2: 조건 스켈레톤 상태
   const [conditions, setConditions] = useState([
@@ -1367,7 +1382,7 @@ function BulkControlTab() {
     if (v == null || isNaN(v)) return "-";
     return Number(v).toLocaleString("ko-KR");
   };
-  const fmtKRW = (v) => {
+  const fmtKRWLocal = (v) => {
     if (v == null || isNaN(v)) return "-";
     return Number(v).toLocaleString("ko-KR");
   };
@@ -1396,7 +1411,7 @@ function BulkControlTab() {
     }
   }, [start, end]);
 
-  // 📊 STEP1 요약: 합계 + 일평균 (stat 응답 구조에 맞게 수정)
+  // 📊 STEP1 요약: 합계 + 일평균
   const summary = useMemo(() => {
     let totalCost = 0;
     let totalConv = 0;
@@ -1405,12 +1420,10 @@ function BulkControlTab() {
     let totalMainConvAmt = 0;
 
     for (const r of rows) {
-      // 백엔드: { adId, campaignId, imp, clk, cost, convCnt, convAmt }
       totalCost += Number(r.cost) || 0;
       totalConv += Number(r.convCnt) || 0;
       totalConvAmt += Number(r.convAmt) || 0;
 
-      // 주 전환(xlsx) 붙이기 전까지는 0 유지 (목업)
       const key = r.mallProductId;
       const main = (mainConvMap && mainConvMap[key]) || {};
       totalMainConv += Number(main.mainccnt) || 0;
@@ -1454,7 +1467,7 @@ function BulkControlTab() {
     };
   }, [rows, mainConvMap, dayCount]);
 
-  // 🚀 STEP1: 소재 데이터 조회 → 이제 /api/naver/ad-summary 사용
+  // 🚀 STEP1: 소재 데이터 조회
   async function loadBulk() {
     try {
       setErr("");
@@ -1470,7 +1483,6 @@ function BulkControlTab() {
         throw new Error(j.error || `조회 실패 (${res.status})`);
       }
 
-      // j는 [{ adId, campaignId, imp, clk, cost, convCnt, convAmt }, ...]
       if (Array.isArray(j)) {
         setRows(j);
       } else {
@@ -1649,7 +1661,7 @@ function BulkControlTab() {
           </div>
         </div>
 
-        {/* 📋 STEP1 결과 테이블: stat-summary (목업 필드 포함) */}
+        {/* STEP1 결과 테이블 */}
         <div style={{ marginTop: 16 }}>
           {rows.length === 0 && !loading && (
             <div style={{ fontSize: 12, color: "#6b7280" }}>
@@ -1678,89 +1690,65 @@ function BulkControlTab() {
                     <th style={thStyle}>전환수</th>
                     <th style={thStyle}>전환매출</th>
                     <th style={thStyle}>ROAS</th>
-                    <th style={thStyle}>주 전환수 (목업)</th>
-                    <th style={thStyle}>주 전환매출 (목업)</th>
-                    <th style={thStyle}>주 ROAS (목업)</th>
+                    <th style={thStyle}>주 전환수</th>
+                    <th style={thStyle}>주 전환매출</th>
+                    <th style={thStyle}>주 ROAS</th>
                   </tr>
                 </thead>
                 <tbody>
-  {rows.map((r, idx) => {
-    const roas = calcRoas(r.convAmt, r.cost);
+                  {rows.map((r, idx) => {
+                    const roas = calcRoas(r.convAmt, r.cost);
 
-    const adName = r.adName || "-";
-    const productId = r.mallProductId || "-";
+                    const adName = r.adName || "-";
+                    const productId = r.mallProductId || "-";
 
-    // 🔥 mallProductId 기준으로 주 전환 데이터 조회
-    const main = (mainConvMap && mainConvMap[r.mallProductId]) || {};
-    const mainConv = Number(main.mainccnt) || 0;
-    const mainConvAmt = Number(main.mainconvAmt) || 0;
-    const mainRoas =
-      r.cost && r.cost > 0
-        ? `${((mainConvAmt / r.cost) * 100).toFixed(1)}%`
-        : "-";
+                    const main = (mainConvMap && mainConvMap[r.mallProductId]) || {};
+                    const mainConv = Number(main.mainccnt) || 0;
+                    const mainConvAmt = Number(main.mainconvAmt) || 0;
+                    const mainRoas =
+                      r.cost && r.cost > 0
+                        ? `${((mainConvAmt / r.cost) * 100).toFixed(1)}%`
+                        : "-";
 
-    return (
-      <tr
-        key={`${r.adId}-${idx}`}
-        style={{
-          background: idx % 2 === 0 ? "#020617" : "#020617",
-        }}
-      >
-        {/* 이름 */}
-        <td style={tdStyle}>{adName}</td>
-
-        {/* 광고 ID */}
-        <td style={tdStyle}>{r.adId}</td>
-
-        {/* 상품 ID */}
-        <td style={tdStyle}>{productId}</td>
-
-        {/* 노출수 */}
-        <td style={{ ...tdStyle, textAlign: "right" }}>
-          {fmtNum(r.imp)}
-        </td>
-
-        {/* 클릭수 */}
-        <td style={{ ...tdStyle, textAlign: "right" }}>
-          {fmtNum(r.clk)}
-        </td>
-
-        {/* 광고비 (VAT 포함) */}
-        <td style={{ ...tdStyle, textAlign: "right" }}>
-          {fmtKRW(Math.round(r.cost || 0))}
-        </td>
-
-        {/* 전환수 */}
-        <td style={{ ...tdStyle, textAlign: "right" }}>
-          {fmtNum(r.convCnt)}
-        </td>
-
-        {/* 전환매출 */}
-        <td style={{ ...tdStyle, textAlign: "right" }}>
-          {fmtKRW(r.convAmt || 0)}
-        </td>
-
-        {/* ROAS */}
-        <td style={{ ...tdStyle, textAlign: "right" }}>{roas}</td>
-
-        {/* ✅ 주 전환수 */}
-        <td style={{ ...tdStyle, textAlign: "right" }}>
-          {mainConv ? fmtNum(mainConv) : "-"}
-        </td>
-
-        {/* ✅ 주 전환매출 */}
-        <td style={{ ...tdStyle, textAlign: "right" }}>
-          {mainConvAmt ? fmtKRW(mainConvAmt) : "-"}
-        </td>
-
-        {/* ✅ 주 ROAS */}
-        <td style={{ ...tdStyle, textAlign: "right" }}>
-          {mainRoas}
-        </td>
-      </tr>
-    );
-  })}
-</tbody>
+                    return (
+                      <tr
+                        key={`${r.adId}-${idx}`}
+                        style={{
+                          background: idx % 2 === 0 ? "#020617" : "#020617",
+                        }}
+                      >
+                        <td style={tdStyle}>{adName}</td>
+                        <td style={tdStyle}>{r.adId}</td>
+                        <td style={tdStyle}>{productId}</td>
+                        <td style={{ ...tdStyle, textAlign: "right" }}>
+                          {fmtNum(r.imp)}
+                        </td>
+                        <td style={{ ...tdStyle, textAlign: "right" }}>
+                          {fmtNum(r.clk)}
+                        </td>
+                        <td style={{ ...tdStyle, textAlign: "right" }}>
+                          {fmtKRWLocal(Math.round(r.cost || 0))}
+                        </td>
+                        <td style={{ ...tdStyle, textAlign: "right" }}>
+                          {fmtNum(r.convCnt)}
+                        </td>
+                        <td style={{ ...tdStyle, textAlign: "right" }}>
+                          {fmtKRWLocal(r.convAmt || 0)}
+                        </td>
+                        <td style={{ ...tdStyle, textAlign: "right" }}>{roas}</td>
+                        <td style={{ ...tdStyle, textAlign: "right" }}>
+                          {mainConv ? fmtNum(mainConv) : "-"}
+                        </td>
+                        <td style={{ ...tdStyle, textAlign: "right" }}>
+                          {mainConvAmt ? fmtKRWLocal(mainConvAmt) : "-"}
+                        </td>
+                        <td style={{ ...tdStyle, textAlign: "right" }}>
+                          {mainRoas}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
               </table>
             </div>
           )}
