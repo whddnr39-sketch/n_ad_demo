@@ -1592,6 +1592,60 @@ function BulkControlTab({ mainConvMap }) {
     };
   }, [rows, conditions, mainConvMap, dayCount]);
 
+  const simulation = useMemo(() => {
+    if (!filtered || !filtered.summary) return null;
+
+    const before = filtered.summary;
+    const { total, daily } = before;
+
+    // k: 광고비 배수, t: 성과(전환/매출) 증가율
+    const k = Number.isFinite(kParam) && kParam > 0 ? kParam : 1;
+    const t = Number.isFinite(tParam) ? tParam : 0;
+    const growth = 1 + t;
+
+    // 기간 합계 기준 AFTER
+    const totalAfter = {
+      cost: total.cost * k,
+      conv: total.conv * growth,
+      convAmt: total.convAmt * growth,
+      mainConv: total.mainConv * growth,
+      mainConvAmt: total.mainConvAmt * growth,
+    };
+
+    totalAfter.roas =
+      totalAfter.cost > 0 ? (totalAfter.convAmt / totalAfter.cost) * 100 : 0;
+    totalAfter.mainRoas =
+      totalAfter.cost > 0
+        ? (totalAfter.mainConvAmt / totalAfter.cost) * 100
+        : 0;
+
+    // 일평균 기준 AFTER
+    const dailyAfter = {
+      cost: daily.cost * k,
+      conv: daily.conv * growth,
+      convAmt: daily.convAmt * growth,
+      mainConv: daily.mainConv * growth,
+      mainConvAmt: daily.mainConvAmt * growth,
+    };
+
+    dailyAfter.roas =
+      dailyAfter.cost > 0 ? (dailyAfter.convAmt / dailyAfter.cost) * 100 : 0;
+    dailyAfter.mainRoas =
+      dailyAfter.cost > 0
+        ? (dailyAfter.mainConvAmt / dailyAfter.cost) * 100
+        : 0;
+
+    return {
+      before,
+      after: {
+        total: totalAfter,
+        daily: dailyAfter,
+      },
+    };
+  }, [filtered, kParam, tParam]);
+
+
+
   // 🚀 STEP1: 소재 데이터 조회
   async function loadBulk() {
     try {
@@ -2205,14 +2259,14 @@ function BulkControlTab({ mainConvMap }) {
         </div>
       </section>
 
-      {/* STEP 3: 프리뷰 & 시뮬레이션 */}
+            {/* STEP 3: 프리뷰 & 시뮬레이션 */}
       <section style={wrapBox}>
         <h2 style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>
           3. 프리뷰 & 시뮬레이션
         </h2>
         <p style={{ fontSize: 12, color: "#9ca3af", marginBottom: 10 }}>
-          설정한 룰에 해당하는 소재 목록과, 적용 전/후 전체 성과 변화를 시뮬레이션한 뒤
-          최종 적용 여부를 결정합니다.
+          설정한 룰에 해당하는 소재 목록과, 시뮬레이션 계수(k, t)를 적용했을 때의
+          BEFORE / AFTER 성과를 비교해서 최종 적용 여부를 판단합니다.
         </p>
 
         {/* 시뮬레이션 계수 설정 */}
@@ -2226,7 +2280,12 @@ function BulkControlTab({ mainConvMap }) {
           }}
         >
           <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 6 }}>
-            시뮬레이션 계수 (k, t를 조절하여 입찰 변화에 대한 성과 반응 민감도를 조정)
+            시뮬레이션 계수 (k, t)
+          </div>
+
+          <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 8 }}>
+            - <strong>k</strong>: 광고비에 곱해지는 배수 (예: k=1.2 → 비용 20% 증가) <br />
+            - <strong>t</strong>: 전환수/전환매출에 곱해지는 증가율 (예: t=0.3 → 성과 30% 증가)
           </div>
 
           <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 12 }}>
@@ -2251,7 +2310,7 @@ function BulkControlTab({ mainConvMap }) {
               />
             </div>
             <button
-              style={{ ...btn }}
+              style={btn}
               onClick={() => {
                 setKParam(1.0);
                 setTParam(0.3);
@@ -2262,7 +2321,7 @@ function BulkControlTab({ mainConvMap }) {
           </div>
         </div>
 
-        {/* 대상 개요 + BEFORE/AFTER 테이블 (placeholder) */}
+        {/* 대상 개요 + BEFORE/AFTER 테이블 */}
         <div
           style={{
             display: "grid",
@@ -2271,7 +2330,7 @@ function BulkControlTab({ mainConvMap }) {
             alignItems: "flex-start",
           }}
         >
-          {/* 대상 개요 */}
+          {/* 액션 대상 개요 */}
           <div
             style={{
               padding: 10,
@@ -2283,10 +2342,42 @@ function BulkControlTab({ mainConvMap }) {
           >
             <div style={{ ...label, marginBottom: 4 }}>액션 대상 개요</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <div>선택된 조건에 해당하는 소재 수: <strong>-</strong> 개</div>
-              <div>해당 소재들의 기간 광고비 합계: <strong>-</strong></div>
-              <div>해당 소재들의 기간 전환수/매출: <strong>-</strong></div>
-              <div>해당 소재들의 ROAS / 주 ROAS: <strong>-</strong></div>
+              <div>
+                선택된 조건에 해당하는 소재 수:{" "}
+                <strong>{filtered.rows.length}</strong> 개
+              </div>
+              <div>
+                기간 광고비 합계:{" "}
+                <strong>
+                  {simulation ? fmtKRW(simulation.before.total.cost) : "-"}
+                </strong>
+              </div>
+              <div>
+                기간 전환수 / 전환매출:{" "}
+                <strong>
+                  {simulation
+                    ? `${fmtNum(simulation.before.total.conv)} / ${fmtKRW(
+                        simulation.before.total.convAmt
+                      )}`
+                    : "-"}
+                </strong>
+              </div>
+              <div>
+                기간 ROAS / 주 ROAS:{" "}
+                <strong>
+                  {simulation
+                    ? `${
+                        Number.isFinite(simulation.before.total.roas)
+                          ? simulation.before.total.roas.toFixed(1) + "%"
+                          : "-"
+                      } / ${
+                        Number.isFinite(simulation.before.total.mainRoas)
+                          ? simulation.before.total.mainRoas.toFixed(1) + "%"
+                          : "-"
+                      }`
+                    : "-"}
+                </strong>
+              </div>
             </div>
           </div>
 
@@ -2300,7 +2391,9 @@ function BulkControlTab({ mainConvMap }) {
               fontSize: 12,
             }}
           >
-            <div style={{ ...label, marginBottom: 4 }}>전체 성과 BEFORE / AFTER (예상)</div>
+            <div style={{ ...label, marginBottom: 4 }}>
+              전체 성과 BEFORE / AFTER (기간 합계 기준)
+            </div>
             <table
               style={{
                 width: "100%",
@@ -2349,8 +2442,141 @@ function BulkControlTab({ mainConvMap }) {
                 </tr>
               </thead>
               <tbody>
-                {["광고비", "전환수", "전환매출", "ROAS", "주 전환수", "주 전환매출", "주 ROAS"].map(
-                  (metric) => (
+                {[
+                  "광고비",
+                  "전환수",
+                  "전환매출",
+                  "ROAS",
+                  "주 전환수",
+                  "주 전환매출",
+                  "주 ROAS",
+                ].map((metric) => {
+                  if (!simulation) {
+                    return (
+                      <tr key={metric}>
+                        <td
+                          style={{
+                            padding: "4px",
+                            borderBottom: "1px solid #0b1120",
+                          }}
+                        >
+                          {metric}
+                        </td>
+                        <td
+                          style={{
+                            padding: "4px",
+                            textAlign: "right",
+                            borderBottom: "1px solid #0b1120",
+                          }}
+                        >
+                          -
+                        </td>
+                        <td
+                          style={{
+                            padding: "4px",
+                            textAlign: "right",
+                            borderBottom: "1px solid #0b1120",
+                          }}
+                        >
+                          -
+                        </td>
+                        <td
+                          style={{
+                            padding: "4px",
+                            textAlign: "right",
+                            borderBottom: "1px solid #0b1120",
+                            color: "#a5b4fc",
+                          }}
+                        >
+                          -
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  const bt = simulation.before.total;
+                  const at = simulation.after.total;
+
+                  let beforeVal = "-";
+                  let afterVal = "-";
+                  let diffVal = "-";
+
+                  let beforeNum = 0;
+                  let afterNum = 0;
+
+                  switch (metric) {
+                    case "광고비":
+                      beforeNum = bt.cost;
+                      afterNum = at.cost;
+                      beforeVal = fmtKRW(beforeNum);
+                      afterVal = fmtKRW(afterNum);
+                      break;
+                    case "전환수":
+                      beforeNum = bt.conv;
+                      afterNum = at.conv;
+                      beforeVal = fmtNum(beforeNum);
+                      afterVal = fmtNum(afterNum);
+                      break;
+                    case "전환매출":
+                      beforeNum = bt.convAmt;
+                      afterNum = at.convAmt;
+                      beforeVal = fmtKRW(beforeNum);
+                      afterVal = fmtKRW(afterNum);
+                      break;
+                    case "ROAS":
+                      beforeNum = bt.roas;
+                      afterNum = at.roas;
+                      beforeVal = Number.isFinite(beforeNum)
+                        ? `${beforeNum.toFixed(1)}%`
+                        : "-";
+                      afterVal = Number.isFinite(afterNum)
+                        ? `${afterNum.toFixed(1)}%`
+                        : "-";
+                      break;
+                    case "주 전환수":
+                      beforeNum = bt.mainConv;
+                      afterNum = at.mainConv;
+                      beforeVal = fmtNum(beforeNum);
+                      afterVal = fmtNum(afterNum);
+                      break;
+                    case "주 전환매출":
+                      beforeNum = bt.mainConvAmt;
+                      afterNum = at.mainConvAmt;
+                      beforeVal = fmtKRW(beforeNum);
+                      afterVal = fmtKRW(afterNum);
+                      break;
+                    case "주 ROAS":
+                      beforeNum = bt.mainRoas;
+                      afterNum = at.mainRoas;
+                      beforeVal = Number.isFinite(beforeNum)
+                        ? `${beforeNum.toFixed(1)}%`
+                        : "-";
+                      afterVal = Number.isFinite(afterNum)
+                        ? `${afterNum.toFixed(1)}%`
+                        : "-";
+                      break;
+                    default:
+                      break;
+                  }
+
+                  const diff = afterNum - beforeNum;
+                  if (Number.isFinite(diff)) {
+                    if (metric.includes("ROAS")) {
+                      diffVal = `${diff >= 0 ? "+" : ""}${diff.toFixed(1)}%p`;
+                    } else if (metric === "광고비" || metric.includes("매출")) {
+                      diffVal =
+                        diff > 0
+                          ? `+${fmtKRW(diff)}`
+                          : fmtKRW(diff);
+                    } else {
+                      diffVal =
+                          diff > 0
+                            ? `+${fmtNum(diff)}`
+                            : fmtNum(diff);
+                    }
+                  }
+
+                  return (
                     <tr key={metric}>
                       <td
                         style={{
@@ -2367,7 +2593,7 @@ function BulkControlTab({ mainConvMap }) {
                           borderBottom: "1px solid #0b1120",
                         }}
                       >
-                        -
+                        {beforeVal}
                       </td>
                       <td
                         style={{
@@ -2376,7 +2602,7 @@ function BulkControlTab({ mainConvMap }) {
                           borderBottom: "1px solid #0b1120",
                         }}
                       >
-                        -
+                        {afterVal}
                       </td>
                       <td
                         style={{
@@ -2386,15 +2612,16 @@ function BulkControlTab({ mainConvMap }) {
                           color: "#a5b4fc",
                         }}
                       >
-                        -
+                        {diffVal}
                       </td>
                     </tr>
-                  )
-                )}
+                  );
+                })}
               </tbody>
             </table>
           </div>
         </div>
+
 
         {/* 적용 버튼 영역 */}
         <div
@@ -2405,9 +2632,7 @@ function BulkControlTab({ mainConvMap }) {
             marginTop: 12,
           }}
         >
-          <button style={{ ...btn, background: "#111827" }}>
-            취소
-          </button>
+          <button style={{ ...btn, background: "#111827" }}>취소</button>
           <button
             style={{
               ...btn,
@@ -2422,6 +2647,7 @@ function BulkControlTab({ mainConvMap }) {
           </button>
         </div>
       </section>
+
     </div>
   );
 }
