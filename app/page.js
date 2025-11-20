@@ -1467,6 +1467,131 @@ function BulkControlTab({ mainConvMap }) {
     };
   }, [rows, mainConvMap, dayCount]);
 
+    const filtered = useMemo(() => {
+    // 활성화된 조건만 사용 (체크 + 값 입력)
+    const activeConds = (conditions || []).filter(
+      (c) => c && c.enabled && c.field && c.value !== ""
+    );
+
+    // 요약 계산용 헬퍼
+    const buildSummary = (targetRows) => {
+      let totalCost = 0;
+      let totalConv = 0;
+      let totalConvAmt = 0;
+      let totalMainConv = 0;
+      let totalMainConvAmt = 0;
+
+      for (const r of targetRows) {
+        totalCost += Number(r.cost) || 0;
+        totalConv += Number(r.convCnt) || 0;
+        totalConvAmt += Number(r.convAmt) || 0;
+
+        const key = r.mallProductId;
+        const main = (mainConvMap && mainConvMap[key]) || {};
+        totalMainConv += Number(main.mainccnt) || 0;
+        totalMainConvAmt += Number(main.mainconvAmt) || 0;
+      }
+
+      const roas = totalCost > 0 ? (totalConvAmt / totalCost) * 100 : 0;
+      const mainRoas =
+        totalCost > 0 ? (totalMainConvAmt / totalCost) * 100 : 0;
+
+      const days = dayCount > 0 ? dayCount : 1;
+
+      const dailyCost = totalCost / days;
+      const dailyConv = totalConv / days;
+      const dailyConvAmt = totalConvAmt / days;
+      const dailyMainConv = totalMainConv / days;
+      const dailyMainConvAmt = totalMainConvAmt / days;
+
+      const dailyRoas =
+        dailyCost > 0 ? (dailyConvAmt / dailyCost) * 100 : 0;
+      const dailyMainRoas =
+        dailyCost > 0 ? (dailyMainConvAmt / dailyCost) * 100 : 0;
+
+      return {
+        total: {
+          cost: totalCost,
+          conv: totalConv,
+          convAmt: totalConvAmt,
+          roas,
+          mainConv: totalMainConv,
+          mainConvAmt: totalMainConvAmt,
+          mainRoas,
+        },
+        daily: {
+          cost: dailyCost,
+          conv: dailyConv,
+          convAmt: dailyConvAmt,
+          roas: dailyRoas,
+          mainConv: dailyMainConv,
+          mainConvAmt: dailyMainConvAmt,
+          mainRoas: dailyMainRoas,
+        },
+      };
+    };
+
+    // 조건이 하나도 없으면 전체 rows 기준
+    if (!activeConds.length) {
+      return {
+        rows: rows,
+        summary: buildSummary(rows),
+      };
+    }
+
+    const getMetric = (r, field) => {
+      const key = r.mallProductId;
+      const main = (mainConvMap && mainConvMap[key]) || {};
+      switch (field) {
+        case "cost":
+          return Number(r.cost) || 0;
+        case "conv":
+          return Number(r.convCnt) || 0;
+        case "convAmt":
+          return Number(r.convAmt) || 0;
+        case "roas": {
+          const cost = Number(r.cost) || 0;
+          const amt = Number(r.convAmt) || 0;
+          return cost > 0 ? (amt / cost) * 100 : 0;
+        }
+        case "mainConv":
+          return Number(main.mainccnt) || 0;
+        case "mainConvAmt":
+          return Number(main.mainconvAmt) || 0;
+        case "mainRoas": {
+          const cost = Number(r.cost) || 0;
+          const amt = Number(main.mainconvAmt) || 0;
+          return cost > 0 ? (amt / cost) * 100 : 0;
+        }
+        case "avgRnk":
+          return Number(r.avgRnk) || 0;
+        default:
+          return null;
+      }
+    };
+
+    const checkOp = (metric, op, rawValue) => {
+      if (metric == null || Number.isNaN(metric)) return false;
+      const v = Number(rawValue);
+      if (!Number.isFinite(v)) return false;
+      if (op === ">=") return metric >= v;
+      if (op === "<=") return metric <= v;
+      if (op === "==") return metric === v;
+      return true;
+    };
+
+    const filteredRows = rows.filter((r) =>
+      activeConds.every((c) =>
+        checkOp(getMetric(r, c.field), c.op, c.value)
+      )
+    );
+
+    return {
+      rows: filteredRows,
+      summary: buildSummary(filteredRows),
+    };
+  }, [rows, conditions, mainConvMap, dayCount]);
+
   // 🚀 STEP1: 소재 데이터 조회
   async function loadBulk() {
     try {
@@ -2009,6 +2134,73 @@ function BulkControlTab({ mainConvMap }) {
                 </div>
               )}
             </div>
+          </div>
+        </div>
+
+         {/* 현재 조건에 해당하는 대상 요약 */}
+        <div
+          style={{
+            marginTop: 12,
+            padding: 10,
+            borderRadius: 10,
+            border: "1px solid #1f2937",
+            background: "#020617",
+          }}
+        >
+          <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 4 }}>
+            현재 설정된 조건에 해당하는 소재 대상 요약
+          </div>
+          <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 6 }}>
+            전체 {rows.length.toLocaleString("ko-KR")}개 중{" "}
+            <span style={{ color: "#e5e7eb" }}>
+              {filtered.rows.length.toLocaleString("ko-KR")}개
+            </span>{" "}
+            가 조건을 만족합니다.
+          </div>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+              gap: 8,
+              fontSize: 12,
+            }}
+          >
+            <BulkSummaryItem
+              label="대상 광고비 합계"
+              value={fmtKRW(filtered.summary.total.cost)}
+            />
+            <BulkSummaryItem
+              label="대상 전환수 합계"
+              value={fmtNum(filtered.summary.total.conv)}
+            />
+            <BulkSummaryItem
+              label="대상 전환매출 합계"
+              value={fmtKRW(filtered.summary.total.convAmt)}
+            />
+            <BulkSummaryItem
+              label="대상 ROAS"
+              value={
+                Number.isFinite(filtered.summary.total.roas)
+                  ? `${filtered.summary.total.roas.toFixed(1)}%`
+                  : "-"
+              }
+            />
+            <BulkSummaryItem
+              label="대상 주 전환수"
+              value={fmtNum(filtered.summary.total.mainConv)}
+            />
+            <BulkSummaryItem
+              label="대상 주 전환매출"
+              value={fmtKRW(filtered.summary.total.mainConvAmt)}
+            />
+            <BulkSummaryItem
+              label="대상 주 ROAS"
+              value={
+                Number.isFinite(filtered.summary.total.mainRoas)
+                  ? `${filtered.summary.total.mainRoas.toFixed(1)}%`
+                  : "-"
+              }
+            />
           </div>
         </div>
       </section>
