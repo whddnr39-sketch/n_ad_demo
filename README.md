@@ -30,6 +30,7 @@
 `.env.local` 예시:
 
 - `API_KEY` / `SECRET_KEY` / `CUSTOMER_ID` (Naver Searchad API)
+- KEY 값은 노션문서 참고
 
 ## 5. 로컬 실행
 ```bash
