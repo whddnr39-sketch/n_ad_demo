@@ -30,7 +30,6 @@
 `.env.local` 예시:
 
 - `API_KEY` / `SECRET_KEY` / `CUSTOMER_ID` (Naver Searchad API)
-- (필요 시) `NAVER_API_KEY`, `NAVER_SECRET_KEY`, `NAVER_CUSTOMER_ID` 도 지원
 
 ## 5. 로컬 실행
 ```bash
