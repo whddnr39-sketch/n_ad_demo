@@ -286,9 +286,10 @@ function buildMasterMap(rows) {
 
     const adName = cols[14] || null;
     const mallProductId = cols[13] || null;
+    const bidAmt = cols[7] || null;
 
     // 동일 adId 여러 번 나와도 마지막 값으로 덮어씀
-    map.set(adId, { adName, mallProductId });
+    map.set(adId, { adName, mallProductId, bidAmt});
   }
 
   return map;
@@ -372,6 +373,7 @@ export async function GET(req) {
         campaignId: base.campaignId || null,
         mallProductId: mapping.mallProductId || null,
         adName: mapping.adName || null,
+        bidAmt: mapping.bidAmt || null,
         imp: base.imp,
         clk: base.clk,
         cost: base.cost,

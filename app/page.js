@@ -1258,12 +1258,20 @@ function BulkControlTab({ mainConvMap }) {
   const [start, setStart] = useState(today);
   const [end, setEnd] = useState(today);
 
+  const [applyLoading, setApplyLoading] = useState(false);
+  const [applyError, setApplyError] = useState("");
+  const [applyResult, setApplyResult] = useState(null); // { total, success, fail }
+
+const [applyLogRows, setApplyLogRows] = useState([]);   // CSV 로그용 row 배열
+const [isApplyModalOpen, setIsApplyModalOpen] = useState(false); // 모달 on/off
+
+
   // STEP1: 조회된 소재 데이터 (/api/naver/ad-summary 응답)
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
-  // STEP2: 조건 스켈레톤 상태
+  // STEP2: 조건 상태
   const [conditions, setConditions] = useState([
     { enabled: true, field: "cost", op: ">=", value: "" },
     { enabled: false, field: "mainRoas", op: ">=", value: "" },
@@ -1274,8 +1282,17 @@ function BulkControlTab({ mainConvMap }) {
   const [actionType, setActionType] = useState("bid_amount");
 
   // 시뮬레이션 계수
-  const [kParam, setKParam] = useState(1.0);
-  const [tParam, setTParam] = useState(0.3);
+  const [kParam, setKParam] = useState(0.7);
+  const [tParam, setTParam] = useState(0.7);
+
+  // 액션 상세 입력값 (Step2)
+  const [bidAmountMode, setBidAmountMode] = useState("decrease"); // 금액 증/감
+  const [bidAmountDelta, setBidAmountDelta] = useState("");       // 금액 (원)
+
+  const [bidPercentMode, setBidPercentMode] = useState("decrease"); // % 증/감
+  const [bidPercentDelta, setBidPercentDelta] = useState("");       // % 값
+
+  const [onoffMode, setOnoffMode] = useState("off"); // "off" | "on"
 
   const fields = [
     { value: "cost", label: "광고비" },
@@ -1411,7 +1428,7 @@ function BulkControlTab({ mainConvMap }) {
     }
   }, [start, end]);
 
-  // 📊 STEP1 요약: 합계 + 일평균
+  // 📊 STEP1 요약: 합계 + 일평균 (전체 기준)
   const summary = useMemo(() => {
     let totalCost = 0;
     let totalConv = 0;
@@ -1467,13 +1484,12 @@ function BulkControlTab({ mainConvMap }) {
     };
   }, [rows, mainConvMap, dayCount]);
 
-    const filtered = useMemo(() => {
-    // 활성화된 조건만 사용 (체크 + 값 입력)
+  // STEP2: 조건 필터링 + 대상 요약
+  const filtered = useMemo(() => {
     const activeConds = (conditions || []).filter(
       (c) => c && c.enabled && c.field && c.value !== ""
     );
 
-    // 요약 계산용 헬퍼
     const buildSummary = (targetRows) => {
       let totalCost = 0;
       let totalConv = 0;
@@ -1531,10 +1547,10 @@ function BulkControlTab({ mainConvMap }) {
       };
     };
 
-    // 조건이 하나도 없으면 전체 rows 기준
+    // 조건이 하나도 없으면 전체 rows 기준 (= 전체를 대상이라고도 볼 수 있음)
     if (!activeConds.length) {
       return {
-        rows: rows,
+        rows,
         summary: buildSummary(rows),
       };
     }
@@ -1592,58 +1608,347 @@ function BulkControlTab({ mainConvMap }) {
     };
   }, [rows, conditions, mainConvMap, dayCount]);
 
+  // STEP3: BEFORE(전체) / AFTER(전체) + 대상만 BEFORE/AFTER 시뮬레이션
   const simulation = useMemo(() => {
-    if (!filtered || !filtered.summary) return null;
+    if (!summary || !summary.total) return null;
 
-    const before = filtered.summary;
-    const { total, daily } = before;
+    const beforeAll = summary.total; // STEP1 전체 요약 = BEFORE
 
-    // k: 광고비 배수, t: 성과(전환/매출) 증가율
-    const k = Number.isFinite(kParam) && kParam > 0 ? kParam : 1;
-    const t = Number.isFinite(tParam) ? tParam : 0;
-    const growth = 1 + t;
+    const hasTarget =
+      filtered &&
+      filtered.summary &&
+      Array.isArray(filtered.rows) &&
+      filtered.rows.length > 0;
 
-    // 기간 합계 기준 AFTER
-    const totalAfter = {
-      cost: total.cost * k,
-      conv: total.conv * growth,
-      convAmt: total.convAmt * growth,
-      mainConv: total.mainConv * growth,
-      mainConvAmt: total.mainConvAmt * growth,
+    if (!hasTarget) {
+      // 대상이 없으면 전체 성과는 그대로
+      return {
+        beforeAll,
+        afterAll: { ...beforeAll },
+        beforeTarget: null,
+        afterTarget: null,
+      };
+    }
+
+    const beforeTarget = filtered.summary.total;
+
+    // 전체 = 대상 + 나머지
+    const beforeOthers = {
+      cost: beforeAll.cost - beforeTarget.cost,
+      conv: beforeAll.conv - beforeTarget.conv,
+      convAmt: beforeAll.convAmt - beforeTarget.convAmt,
+      mainConv: beforeAll.mainConv - beforeTarget.mainConv,
+      mainConvAmt: beforeAll.mainConvAmt - beforeTarget.mainConvAmt,
     };
 
-    totalAfter.roas =
-      totalAfter.cost > 0 ? (totalAfter.convAmt / totalAfter.cost) * 100 : 0;
-    totalAfter.mainRoas =
-      totalAfter.cost > 0
-        ? (totalAfter.mainConvAmt / totalAfter.cost) * 100
-        : 0;
+    // 1) 입찰 변화율 (bidAmt 기반)
+    let bidGrowth = 1; // 대상 소재 광고비가 몇 배가 될지
 
-    // 일평균 기준 AFTER
-    const dailyAfter = {
-      cost: daily.cost * k,
-      conv: daily.conv * growth,
-      convAmt: daily.convAmt * growth,
-      mainConv: daily.mainConv * growth,
-      mainConvAmt: daily.mainConvAmt * growth,
+    const bidRows = filtered.rows.filter((r) => {
+      const b = Number(r.bidAmt);
+      return Number.isFinite(b) && b > 0;
+    });
+
+    if (bidRows.length === 0) {
+      bidGrowth = 1;
+    } else if (actionType === "bid_amount") {
+      const delta = Number(bidAmountDelta);
+      if (Number.isFinite(delta) && delta !== 0) {
+        let beforeSum = 0;
+        let afterSum = 0;
+        for (const r of bidRows) {
+          const b = Number(r.bidAmt) || 0;
+          beforeSum += b;
+          const newB =
+            bidAmountMode === "increase" ? b + delta : Math.max(0, b - delta);
+          afterSum += newB;
+        }
+        bidGrowth = beforeSum > 0 ? afterSum / beforeSum : 1;
+      }
+    } else if (actionType === "bid_percent") {
+      const pct = Number(bidPercentDelta);
+      if (Number.isFinite(pct) && pct !== 0) {
+        const sign = bidPercentMode === "increase" ? 1 : -1;
+        bidGrowth = 1 + (pct / 100) * sign;
+      }
+    } else if (actionType === "onoff") {
+      bidGrowth = onoffMode === "off" ? 0 : 1;
+    }
+
+    // 2) 시뮬레이션 계수 k, t 적용
+    const kBase = Number.isFinite(kParam) && kParam > 0 ? kParam : 1;
+    const costFactor = bidGrowth * kBase; // 대상 광고비 배수
+
+    // t: 전환이 광고비 변화를 얼마나 따라갈지 (t=1 → 100%, t=0.5 → 50%)
+    const t = Number.isFinite(tParam) ? tParam : 1;
+
+    // 광고비가 costFactor배로 변할 때
+    // 전환/매출 배수 = 1 + t * (costFactor - 1)
+    // 예) costFactor=0.5, t=1   → 1 + 1*(0.5-1)  = 0.5  (50% 감소)
+    //     costFactor=0.5, t=0.5 → 1 + 0.5*(0.5-1)= 0.75 (25% 감소)
+    let perfFactor = 1 + t * (costFactor - 1);
+    if (perfFactor < 0) perfFactor = 0; // 안전장치
+
+
+    const calcRoasNum = (amt, cost) =>
+      cost > 0 ? (amt / cost) * 100 : 0;
+
+    // 3) 대상 AFTER
+    const afterTarget = {
+      cost: beforeTarget.cost * costFactor,
+      conv: beforeTarget.conv * perfFactor,
+      convAmt: beforeTarget.convAmt * perfFactor,
+      mainConv: beforeTarget.mainConv * perfFactor,
+      mainConvAmt: beforeTarget.mainConvAmt * perfFactor,
     };
+    afterTarget.roas = calcRoasNum(afterTarget.convAmt, afterTarget.cost);
+    afterTarget.mainRoas = calcRoasNum(
+      afterTarget.mainConvAmt,
+      afterTarget.cost
+    );
 
-    dailyAfter.roas =
-      dailyAfter.cost > 0 ? (dailyAfter.convAmt / dailyAfter.cost) * 100 : 0;
-    dailyAfter.mainRoas =
-      dailyAfter.cost > 0
-        ? (dailyAfter.mainConvAmt / dailyAfter.cost) * 100
-        : 0;
+    // 4) 나머지는 그대로
+    const afterOthers = { ...beforeOthers };
+
+    // 5) 전체 AFTER = 대상 AFTER + 나머지 BEFORE
+    const afterAll = {
+      cost: afterTarget.cost + afterOthers.cost,
+      conv: afterTarget.conv + afterOthers.conv,
+      convAmt: afterTarget.convAmt + afterOthers.convAmt,
+      mainConv: afterTarget.mainConv + afterOthers.mainConv,
+      mainConvAmt: afterTarget.mainConvAmt + afterOthers.mainConvAmt,
+    };
+    afterAll.roas = calcRoasNum(afterAll.convAmt, afterAll.cost);
+    afterAll.mainRoas = calcRoasNum(afterAll.mainConvAmt, afterAll.cost);
 
     return {
-      before,
-      after: {
-        total: totalAfter,
-        daily: dailyAfter,
-      },
+      beforeAll,
+      afterAll,
+      beforeTarget,
+      afterTarget,
     };
-  }, [filtered, kParam, tParam]);
+  }, [
+    summary,
+    filtered,
+    actionType,
+    bidAmountMode,
+    bidAmountDelta,
+    bidPercentMode,
+    bidPercentDelta,
+    onoffMode,
+    kParam,
+    tParam,
+  ]);
 
+    // ✅ 실제로 보낼 bulk 액션 payload 생성
+  function buildBulkActions() {
+    if (!filtered || !Array.isArray(filtered.rows) || !filtered.rows.length) {
+      return [];
+    }
+
+    const items = [];
+
+    for (const r of filtered.rows) {
+      const adId = r.adId;
+      if (!adId) continue;
+
+      // ON/OFF 액션
+      if (actionType === "onoff") {
+        const status = onoffMode === "off" ? "OFF" : "ON";
+        items.push({
+          adId,
+          type: "onoff",
+          status,
+        });
+        continue;
+      }
+
+      // 입찰 액션 (bid_amount / bid_percent)
+      const currentBid = Number(r.bidAmt);
+      if (!Number.isFinite(currentBid) || currentBid <= 0) {
+        // 유효한 입찰가가 없으면 스킵
+        continue;
+      }
+
+      if (actionType === "bid_amount") {
+        const delta = Number(bidAmountDelta);
+        if (!Number.isFinite(delta) || delta === 0) continue;
+
+        let newBid =
+          bidAmountMode === "increase"
+            ? currentBid + delta
+            : Math.max(0, currentBid - delta);
+
+        // 필요하다면 최소 단위/최댓값 등 추가 제한 가능
+        newBid = Math.round(newBid);
+
+        items.push({
+          adId,
+          type: "bid",
+          newBid,
+        });
+      } else if (actionType === "bid_percent") {
+        const pct = Number(bidPercentDelta);
+        if (!Number.isFinite(pct) || pct === 0) continue;
+
+        const sign = bidPercentMode === "increase" ? 1 : -1;
+        const factor = 1 + (pct / 100) * sign;
+        let newBid = currentBid * factor;
+
+        newBid = Math.round(newBid);
+
+        items.push({
+          adId,
+          type: "bid",
+          newBid,
+        });
+      }
+    }
+
+    return items;
+  }
+
+    // ✅ "적용하기" 버튼 클릭 시 실제로 API 호출
+    // ✅ "적용하기" 버튼 클릭 시 실제로 API 호출
+  async function handleApplyBulk() {
+    setApplyError("");
+    setApplyResult(null);
+    setApplyLogRows([]);
+    setIsApplyModalOpen(false);
+
+    const items = buildBulkActions(); // 앞에서 만들어둔 함수
+
+    if (!items.length) {
+      setApplyError("적용할 대상이 없습니다. 조건/액션 설정을 확인해 주세요.");
+      return;
+    }
+
+    try {
+      setApplyLoading(true);
+
+      const res = await fetch("/api/naver/ad-bulk-action", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ items }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || data.error) {
+        throw new Error(data.error || `적용 실패 (${res.status})`);
+      }
+
+      const total = data.total ?? items.length;
+      const success = data.success ?? total;
+      const fail = data.fail ?? 0;
+      const errors = Array.isArray(data.errors) ? data.errors : [];
+
+      // 에러 매핑 (adId + type + newBid/status 기준으로 매칭)
+      const errorMap = new Map();
+      for (const e of errors) {
+        const it = e.item || {};
+        const keyParts = [];
+        if (it.adId) keyParts.push(it.adId);
+        if (it.type) keyParts.push(it.type);
+        if (it.newBid !== undefined) keyParts.push(`bid:${it.newBid}`);
+        if (it.status) keyParts.push(`status:${it.status}`);
+        const key = keyParts.join("|") || JSON.stringify(it);
+        errorMap.set(key, e);
+      }
+
+      // 로그 row 구성
+      const logs = items.map((it) => {
+        const keyParts = [];
+        if (it.adId) keyParts.push(it.adId);
+        if (it.type) keyParts.push(it.type);
+        if (it.newBid !== undefined) keyParts.push(`bid:${it.newBid}`);
+        if (it.status) keyParts.push(`status:${it.status}`);
+        const key = keyParts.join("|") || JSON.stringify(it);
+
+        const err = errorMap.get(key);
+        return {
+          adId: it.adId || "",
+          type: it.type || "",
+          newBid: it.newBid ?? "",
+          status: it.status ?? "",
+          result: err ? "FAIL" : "SUCCESS",
+          errorMessage: err?.error || "",
+          httpStatus: err?.status ?? "",
+        };
+      });
+
+      setApplyLogRows(logs);
+      setApplyResult({ total, success, fail });
+      setIsApplyModalOpen(true); // ✅ 모달 열기
+    } catch (e) {
+      console.error(e);
+      setApplyError(String(e.message || e));
+      setIsApplyModalOpen(true); // 에러도 모달로 보여줌
+    } finally {
+      setApplyLoading(false);
+    }
+  }
+
+
+  // ✅ 적용 결과 로그를 CSV로 다운로드
+  function downloadApplyLogCsv() {
+    if (!applyLogRows || !applyLogRows.length) return;
+
+    const headers = [
+      "adId",
+      "type",
+      "newBid",
+      "status",
+      "result",
+      "errorMessage",
+      "httpStatus",
+    ];
+
+    const lines = [];
+
+    // 헤더
+    lines.push(headers.join(","));
+
+    // 각 row
+    for (const row of applyLogRows) {
+      const line = headers
+        .map((key) => {
+          let val = row[key] ?? "";
+          if (val === null || val === undefined) val = "";
+          val = String(val);
+
+          // CSV 이스케이프 (",", 줄바꿈, 따옴표 처리)
+          if (
+            val.includes(",") ||
+            val.includes("\n") ||
+            val.includes('"')
+          ) {
+            val = `"${val.replace(/"/g, '""')}"`;
+          }
+          return val;
+        })
+        .join(",");
+
+      lines.push(line);
+    }
+
+    const csv = lines.join("\n");
+    const blob = new Blob([csv], {
+      type: "text/csv;charset=utf-8;",
+    });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+    a.href = url;
+    a.download = `bulk_action_log_${ts}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
 
 
   // 🚀 STEP1: 소재 데이터 조회
@@ -1863,6 +2168,7 @@ function BulkControlTab({ mainConvMap }) {
                     <th style={thStyle}>이름</th>
                     <th style={thStyle}>광고 ID</th>
                     <th style={thStyle}>상품 ID</th>
+                    <th style={thStyle}>입찰가</th>
                     <th style={thStyle}>노출수</th>
                     <th style={thStyle}>클릭수</th>
                     <th style={thStyle}>광고비</th>
@@ -1880,11 +2186,13 @@ function BulkControlTab({ mainConvMap }) {
 
                     const adName = r.adName || "-";
                     const productId = r.mallProductId || "-";
+                    const bidAmt = r.bidAmt ?? "-";
 
-                    const main = (mainConvMap && mainConvMap[r.mallProductId]) || {};
+                    const main =
+                      (mainConvMap && mainConvMap[r.mallProductId]) || {};
                     const mainConv = Number(main.mainccnt) || 0;
                     const mainConvAmt = Number(main.mainconvAmt) || 0;
-                    const mainRoas =
+                    const mainRoasVal =
                       r.cost && r.cost > 0
                         ? `${((mainConvAmt / r.cost) * 100).toFixed(1)}%`
                         : "-";
@@ -1899,6 +2207,7 @@ function BulkControlTab({ mainConvMap }) {
                         <td style={tdStyle}>{adName}</td>
                         <td style={tdStyle}>{r.adId}</td>
                         <td style={tdStyle}>{productId}</td>
+                        <td style={tdStyle}>{bidAmt}</td>
                         <td style={{ ...tdStyle, textAlign: "right" }}>
                           {fmtNum(r.imp)}
                         </td>
@@ -1922,7 +2231,7 @@ function BulkControlTab({ mainConvMap }) {
                           {mainConvAmt ? fmtKRWLocal(mainConvAmt) : "-"}
                         </td>
                         <td style={{ ...tdStyle, textAlign: "right" }}>
-                          {mainRoas}
+                          {mainRoasVal}
                         </td>
                       </tr>
                     );
@@ -1933,7 +2242,6 @@ function BulkControlTab({ mainConvMap }) {
           )}
         </div>
       </section>
-
 
       {/* STEP 2: 룰 설정 (조건 + 액션) */}
       <section style={wrapBox}>
@@ -2039,9 +2347,7 @@ function BulkControlTab({ mainConvMap }) {
                   }}
                 />
 
-                <span style={{ fontSize: 11, color: "#6b7280" }}>
-                  {/* 나중에 field에 따라 단위(원, %, 건수 등) 표시해줘도 좋음 */}
-                </span>
+                <span style={{ fontSize: 11, color: "#6b7280" }} />
               </div>
             ))}
           </div>
@@ -2114,13 +2420,17 @@ function BulkControlTab({ mainConvMap }) {
               </div>
             </div>
 
-            {/* 액션 상세 설정 (스켈레톤) */}
+            {/* 액션 상세 설정 */}
             <div style={{ flex: 1, minWidth: 260 }}>
               {actionType === "bid_amount" && (
                 <div style={{ fontSize: 12 }}>
                   <div style={{ ...label, marginBottom: 4 }}>입찰가 금액 조정</div>
                   <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <select style={{ ...sel, minWidth: 90 }}>
+                    <select
+                      style={{ ...sel, minWidth: 90 }}
+                      value={bidAmountMode}
+                      onChange={(e) => setBidAmountMode(e.target.value)}
+                    >
                       <option value="decrease">감소</option>
                       <option value="increase">증가</option>
                     </select>
@@ -2128,9 +2438,11 @@ function BulkControlTab({ mainConvMap }) {
                       type="number"
                       placeholder="금액 (원)"
                       style={{ ...sel, minWidth: 120 }}
+                      value={bidAmountDelta}
+                      onChange={(e) => setBidAmountDelta(e.target.value)}
                     />
                     <span style={{ fontSize: 11, color: "#9ca3af" }}>
-                      (최소·최대 입찰 한도는 추후 옵션으로 추가)
+                      (각 소재의 기존 입찰가 대비 +/- 금액)
                     </span>
                   </div>
                 </div>
@@ -2147,7 +2459,11 @@ function BulkControlTab({ mainConvMap }) {
                     }}
                   >
                     <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                      <select style={{ ...sel, minWidth: 90 }}>
+                      <select
+                        style={{ ...sel, minWidth: 90 }}
+                        value={bidPercentMode}
+                        onChange={(e) => setBidPercentMode(e.target.value)}
+                      >
                         <option value="decrease">감소</option>
                         <option value="increase">증가</option>
                       </select>
@@ -2155,19 +2471,23 @@ function BulkControlTab({ mainConvMap }) {
                         type="number"
                         placeholder="변경 비율 (%)"
                         style={{ ...sel, minWidth: 120 }}
+                        value={bidPercentDelta}
+                        onChange={(e) => setBidPercentDelta(e.target.value)}
                       />
                     </div>
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                      <input
-                        type="number"
-                        placeholder="최소 입찰가 (원)"
-                        style={{ ...sel, minWidth: 140 }}
-                      />
-                      <input
-                        type="number"
-                        placeholder="최대 입찰가 (원)"
-                        style={{ ...sel, minWidth: 140 }}
-                      />
+                      {[10, 20, 30, 50].map((p) => (
+                        <button
+                          key={p}
+                          type="button"
+                          style={btn}
+                          onClick={() => {
+                            setBidPercentDelta(String(p));
+                          }}
+                        >
+                          {p}%
+                        </button>
+                      ))}
                     </div>
                   </div>
                 </div>
@@ -2177,7 +2497,11 @@ function BulkControlTab({ mainConvMap }) {
                 <div style={{ fontSize: 12 }}>
                   <div style={{ ...label, marginBottom: 4 }}>소재 ON/OFF 전환</div>
                   <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <select style={{ ...sel, minWidth: 140 }}>
+                    <select
+                      style={{ ...sel, minWidth: 140 }}
+                      value={onoffMode}
+                      onChange={(e) => setOnoffMode(e.target.value)}
+                    >
                       <option value="off">지정된 소재 OFF</option>
                       <option value="on">지정된 소재 ON</option>
                     </select>
@@ -2191,7 +2515,7 @@ function BulkControlTab({ mainConvMap }) {
           </div>
         </div>
 
-         {/* 현재 조건에 해당하는 대상 요약 */}
+        {/* 현재 조건에 해당하는 대상 요약 */}
         <div
           style={{
             marginTop: 12,
@@ -2259,7 +2583,7 @@ function BulkControlTab({ mainConvMap }) {
         </div>
       </section>
 
-            {/* STEP 3: 프리뷰 & 시뮬레이션 */}
+      {/* STEP 3: 프리뷰 & 시뮬레이션 */}
       <section style={wrapBox}>
         <h2 style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>
           3. 프리뷰 & 시뮬레이션
@@ -2284,8 +2608,8 @@ function BulkControlTab({ mainConvMap }) {
           </div>
 
           <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 8 }}>
-            - <strong>k</strong>: 광고비에 곱해지는 배수 (예: k=1.2 → 비용 20% 증가) <br />
-            - <strong>t</strong>: 전환수/전환매출에 곱해지는 증가율 (예: t=0.3 → 성과 30% 증가)
+            - <strong>k</strong>: 광고비에 곱해지는 배수 (예: k=1.2 → 광고비는 입찰가보다 20% 더 민감하게 움직임) <br />
+            - <strong>t</strong>: 전환수/전환매출에 곱해지는 증가율 (예: t=0.5 → 전환은 광고비의 50% 만큼만 따라감)
           </div>
 
           <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 12 }}>
@@ -2293,7 +2617,7 @@ function BulkControlTab({ mainConvMap }) {
               <div style={label}>성과 민감도 k</div>
               <input
                 type="number"
-                step="0.1"
+                step="0.7"
                 value={kParam}
                 onChange={(e) => setKParam(Number(e.target.value))}
                 style={{ ...sel, minWidth: 80 }}
@@ -2303,7 +2627,7 @@ function BulkControlTab({ mainConvMap }) {
               <div style={label}>ROAS 기울기 t</div>
               <input
                 type="number"
-                step="0.1"
+                step="0.7"
                 value={tParam}
                 onChange={(e) => setTParam(Number(e.target.value))}
                 style={{ ...sel, minWidth: 80 }}
@@ -2312,16 +2636,16 @@ function BulkControlTab({ mainConvMap }) {
             <button
               style={btn}
               onClick={() => {
-                setKParam(1.0);
-                setTParam(0.3);
+                setKParam(0.7);
+                setTParam(0.7);
               }}
             >
-              기본값으로 초기화 (k=1.0, t=0.3)
+              기본값으로 초기화 (k=0.7, t=0.7)
             </button>
           </div>
         </div>
 
-        {/* 대상 개요 + BEFORE/AFTER 테이블 */}
+        {/* 대상 개요 + BEFORE/AFTER 테이블들 */}
         <div
           style={{
             display: "grid",
@@ -2330,7 +2654,7 @@ function BulkControlTab({ mainConvMap }) {
             alignItems: "flex-start",
           }}
         >
-          {/* 액션 대상 개요 */}
+          {/* 대상 개요 (BEFORE 기준) */}
           <div
             style={{
               padding: 10,
@@ -2340,48 +2664,39 @@ function BulkControlTab({ mainConvMap }) {
               fontSize: 12,
             }}
           >
-            <div style={{ ...label, marginBottom: 4 }}>액션 대상 개요</div>
+            <div style={{ ...label, marginBottom: 4 }}>액션 대상 개요 (BEFORE 기준)</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               <div>
                 선택된 조건에 해당하는 소재 수:{" "}
-                <strong>{filtered.rows.length}</strong> 개
+                <strong>{filtered.rows.length.toLocaleString("ko-KR")}</strong> 개
               </div>
               <div>
-                기간 광고비 합계:{" "}
+                대상 기간 광고비 합계:{" "}
+                <strong>{fmtKRW(filtered.summary.total.cost)}</strong>
+              </div>
+              <div>
+                대상 기간 전환수/매출:{" "}
                 <strong>
-                  {simulation ? fmtKRW(simulation.before.total.cost) : "-"}
+                  {fmtNum(filtered.summary.total.conv)} /{" "}
+                  {fmtKRW(filtered.summary.total.convAmt)}
                 </strong>
               </div>
               <div>
-                기간 전환수 / 전환매출:{" "}
+                대상 ROAS / 주 ROAS:{" "}
                 <strong>
-                  {simulation
-                    ? `${fmtNum(simulation.before.total.conv)} / ${fmtKRW(
-                        simulation.before.total.convAmt
-                      )}`
+                  {Number.isFinite(filtered.summary.total.roas)
+                    ? `${filtered.summary.total.roas.toFixed(1)}%`
                     : "-"}
-                </strong>
-              </div>
-              <div>
-                기간 ROAS / 주 ROAS:{" "}
-                <strong>
-                  {simulation
-                    ? `${
-                        Number.isFinite(simulation.before.total.roas)
-                          ? simulation.before.total.roas.toFixed(1) + "%"
-                          : "-"
-                      } / ${
-                        Number.isFinite(simulation.before.total.mainRoas)
-                          ? simulation.before.total.mainRoas.toFixed(1) + "%"
-                          : "-"
-                      }`
+                  {" / "}
+                  {Number.isFinite(filtered.summary.total.mainRoas)
+                    ? `${filtered.summary.total.mainRoas.toFixed(1)}%`
                     : "-"}
                 </strong>
               </div>
             </div>
           </div>
 
-          {/* BEFORE / AFTER 요약 */}
+          {/* 전체 BEFORE / AFTER 요약 */}
           <div
             style={{
               padding: 10,
@@ -2494,8 +2809,8 @@ function BulkControlTab({ mainConvMap }) {
                     );
                   }
 
-                  const bt = simulation.before.total;
-                  const at = simulation.after.total;
+                  const bt = simulation.beforeAll;
+                  const at = simulation.afterAll;
 
                   let beforeVal = "-";
                   let afterVal = "-";
@@ -2564,15 +2879,9 @@ function BulkControlTab({ mainConvMap }) {
                     if (metric.includes("ROAS")) {
                       diffVal = `${diff >= 0 ? "+" : ""}${diff.toFixed(1)}%p`;
                     } else if (metric === "광고비" || metric.includes("매출")) {
-                      diffVal =
-                        diff > 0
-                          ? `+${fmtKRW(diff)}`
-                          : fmtKRW(diff);
+                      diffVal = diff > 0 ? `+${fmtKRW(diff)}` : fmtKRW(diff);
                     } else {
-                      diffVal =
-                          diff > 0
-                            ? `+${fmtNum(diff)}`
-                            : fmtNum(diff);
+                      diffVal = diff > 0 ? `+${fmtNum(diff)}` : fmtNum(diff);
                     }
                   }
 
@@ -2622,9 +2931,232 @@ function BulkControlTab({ mainConvMap }) {
           </div>
         </div>
 
+        {/* 대상만 BEFORE / AFTER 요약 (옵션) */}
+        <div
+          style={{
+            marginTop: 12,
+            padding: 10,
+            borderRadius: 10,
+            border: "1px solid #1f2937",
+            background: "#020617",
+            fontSize: 12,
+          }}
+        >
+          <div style={{ ...label, marginBottom: 4 }}>
+            액션 대상만 BEFORE / AFTER (기간 합계 기준)
+          </div>
+          {!simulation || !simulation.beforeTarget ? (
+            <div style={{ fontSize: 12, color: "#6b7280" }}>
+              조건에 해당하는 대상 소재가 없습니다.
+            </div>
+          ) : (
+            <table
+              style={{
+                width: "100%",
+                borderCollapse: "collapse",
+                fontSize: 12,
+              }}
+            >
+              <thead>
+                <tr>
+                  <th
+                    style={{
+                      textAlign: "left",
+                      padding: "6px 4px",
+                      borderBottom: "1px solid #1f2937",
+                    }}
+                  >
+                    지표
+                  </th>
+                  <th
+                    style={{
+                      textAlign: "right",
+                      padding: "6px 4px",
+                      borderBottom: "1px solid #1f2937",
+                    }}
+                  >
+                    BEFORE(대상)
+                  </th>
+                  <th
+                    style={{
+                      textAlign: "right",
+                      padding: "6px 4px",
+                      borderBottom: "1px solid #1f2937",
+                    }}
+                  >
+                    AFTER(대상)
+                  </th>
+                  <th
+                    style={{
+                      textAlign: "right",
+                      padding: "6px 4px",
+                      borderBottom: "1px solid #1f2937",
+                    }}
+                  >
+                    변화량
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  "광고비",
+                  "전환수",
+                  "전환매출",
+                  "ROAS",
+                  "주 전환수",
+                  "주 전환매출",
+                  "주 ROAS",
+                ].map((metric) => {
+                  const bt = simulation.beforeTarget;
+                  const at = simulation.afterTarget;
+
+                  let beforeVal = "-";
+                  let afterVal = "-";
+                  let diffVal = "-";
+
+                  let beforeNum = 0;
+                  let afterNum = 0;
+
+                  switch (metric) {
+                    case "광고비":
+                      beforeNum = bt.cost;
+                      afterNum = at.cost;
+                      beforeVal = fmtKRW(beforeNum);
+                      afterVal = fmtKRW(afterNum);
+                      break;
+                    case "전환수":
+                      beforeNum = bt.conv;
+                      afterNum = at.conv;
+                      beforeVal = fmtNum(beforeNum);
+                      afterVal = fmtNum(afterNum);
+                      break;
+                    case "전환매출":
+                      beforeNum = bt.convAmt;
+                      afterNum = at.convAmt;
+                      beforeVal = fmtKRW(beforeNum);
+                      afterVal = fmtKRW(afterNum);
+                      break;
+                    case "ROAS":
+                      beforeNum = bt.roas;
+                      afterNum = at.roas;
+                      beforeVal = Number.isFinite(beforeNum)
+                        ? `${beforeNum.toFixed(1)}%`
+                        : "-";
+                      afterVal = Number.isFinite(afterNum)
+                        ? `${afterNum.toFixed(1)}%`
+                        : "-";
+                      break;
+                    case "주 전환수":
+                      beforeNum = bt.mainConv;
+                      afterNum = at.mainConv;
+                      beforeVal = fmtNum(beforeNum);
+                      afterVal = fmtNum(afterNum);
+                      break;
+                    case "주 전환매출":
+                      beforeNum = bt.mainConvAmt;
+                      afterNum = at.mainConvAmt;
+                      beforeVal = fmtKRW(beforeNum);
+                      afterVal = fmtKRW(afterNum);
+                      break;
+                    case "주 ROAS":
+                      beforeNum = bt.mainRoas;
+                      afterNum = at.mainRoas;
+                      beforeVal = Number.isFinite(beforeNum)
+                        ? `${beforeNum.toFixed(1)}%`
+                        : "-";
+                      afterVal = Number.isFinite(afterNum)
+                        ? `${afterNum.toFixed(1)}%`
+                        : "-";
+                      break;
+                    default:
+                      break;
+                  }
+
+                  const diff = afterNum - beforeNum;
+                  if (Number.isFinite(diff)) {
+                    if (metric.includes("ROAS")) {
+                      diffVal = `${diff >= 0 ? "+" : ""}${diff.toFixed(1)}%p`;
+                    } else if (metric === "광고비" || metric.includes("매출")) {
+                      diffVal = diff > 0 ? `+${fmtKRW(diff)}` : fmtKRW(diff);
+                    } else {
+                      diffVal = diff > 0 ? `+${fmtNum(diff)}` : fmtNum(diff);
+                    }
+                  }
+
+                  return (
+                    <tr key={metric}>
+                      <td
+                        style={{
+                          padding: "4px",
+                          borderBottom: "1px solid #0b1120",
+                        }}
+                      >
+                        {metric}
+                      </td>
+                      <td
+                        style={{
+                          padding: "4px",
+                          textAlign: "right",
+                          borderBottom: "1px solid #0b1120",
+                        }}
+                      >
+                        {beforeVal}
+                      </td>
+                      <td
+                        style={{
+                          padding: "4px",
+                          textAlign: "right",
+                          borderBottom: "1px solid #0b1120",
+                        }}
+                      >
+                        {afterVal}
+                      </td>
+                      <td
+                        style={{
+                          padding: "4px",
+                          textAlign: "right",
+                          borderBottom: "1px solid #0b1120",
+                          color: "#a5b4fc",
+                        }}
+                      >
+                        {diffVal}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
 
         {/* 적용 버튼 영역 */}
-        <div
+                {/* 적용 결과 / 에러 표시 */}
+        {applyError && (
+          <div
+            style={{
+              marginTop: 8,
+              fontSize: 12,
+              color: "#fca5a5",
+            }}
+          >
+            * {applyError}
+          </div>
+        )}
+        {applyResult && (
+          <div
+            style={{
+              marginTop: 8,
+              fontSize: 12,
+              color: "#a5b4fc",
+            }}
+          >
+            적용 완료: 총 {applyResult.total}개 중{" "}
+            {applyResult.success}개 성공, {applyResult.fail}개 실패
+          </div>
+        )}
+
+        {/* 적용 버튼 영역 */}
+                <div
           style={{
             display: "flex",
             justifyContent: "flex-end",
@@ -2640,18 +3172,145 @@ function BulkControlTab({ mainConvMap }) {
               borderColor: "#16a34a",
               fontWeight: 600,
             }}
-            disabled
-            title="데이터/룰/시뮬레이션 로직 연결 후 활성화 예정"
+            disabled={!filtered.rows.length || applyLoading}
+            onClick={handleApplyBulk}
           >
-            적용하기 (추후 활성화)
+            {applyLoading
+              ? "적용 중…"
+              : `적용하기 (${filtered.rows.length.toLocaleString("ko-KR")}개 소재)`}
           </button>
         </div>
+
+
       </section>
+            {isApplyModalOpen && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(15,23,42,0.7)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 50,
+          }}
+        >
+          <div
+            style={{
+              background: "#020617",
+              border: "1px solid #1f2937",
+              borderRadius: 12,
+              padding: 16,
+              minWidth: 320,
+              maxWidth: 480,
+              boxShadow: "0 10px 40px rgba(0,0,0,0.6)",
+            }}
+          >
+            <h3
+              style={{
+                fontSize: 14,
+                fontWeight: 600,
+                marginBottom: 8,
+                color: "#e5e7eb",
+              }}
+            >
+              일괄 적용 결과
+            </h3>
+
+            {applyResult ? (
+              <div
+                style={{
+                  fontSize: 12,
+                  color: "#e5e7eb",
+                  marginBottom: 12,
+                  lineHeight: 1.6,
+                }}
+              >
+                <div>
+                  총 처리 건수:{" "}
+                  <strong>
+                    {applyResult.total.toLocaleString("ko-KR")}개
+                  </strong>
+                </div>
+                <div>
+                  성공:{" "}
+                  <strong>
+                    {applyResult.success.toLocaleString("ko-KR")}개
+                  </strong>
+                </div>
+                <div>
+                  실패:{" "}
+                  <strong>
+                    {applyResult.fail.toLocaleString("ko-KR")}개
+                  </strong>
+                </div>
+              </div>
+            ) : (
+              <div
+                style={{
+                  fontSize: 12,
+                  color: "#e5e7eb",
+                  marginBottom: 12,
+                }}
+              >
+                처리 결과를 불러오지 못했습니다.
+              </div>
+            )}
+
+            {applyError && (
+              <div
+                style={{
+                  fontSize: 11,
+                  color: "#fca5a5",
+                  marginBottom: 8,
+                }}
+              >
+                * {applyError}
+              </div>
+            )}
+
+            {applyLogRows && applyLogRows.length > 0 && (
+              <button
+                type="button"
+                onClick={downloadApplyLogCsv}
+                style={{
+                  ...btn,
+                  width: "100%",
+                  marginBottom: 8,
+                  textAlign: "center",
+                  background: "#1d4ed8",
+                  borderColor: "#1d4ed8",
+                  fontWeight: 600,
+                }}
+              >
+                로그 CSV 다운로드
+              </button>
+            )}
+
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "flex-end",
+                gap: 8,
+                marginTop: 4,
+              }}
+            >
+              <button
+                type="button"
+                style={{ ...btn }}
+                onClick={() => setIsApplyModalOpen(false)}
+              >
+                닫기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
-  );
+  
+);
 }
-
 
 function BulkSummaryItem({ label, value }) {
   return (
@@ -2663,7 +3322,9 @@ function BulkSummaryItem({ label, value }) {
         background: "#020617",
       }}
     >
-      <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 2 }}>{label}</div>
+      <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 2 }}>
+        {label}
+      </div>
       <div style={{ fontSize: 13, fontWeight: 600 }}>{value}</div>
     </div>
   );
